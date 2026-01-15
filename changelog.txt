@@ -1,3 +1,68 @@
+Version 1.4.0 (2026-01-14)
+
+     Python 3 Port & Single-Player Refactor
+     
+     This release modernizes Frets on Fire for current systems. The game has
+     been ported to Python 3 and refactored to a single-player only architecture,
+     removing all legacy networking code while preserving the original gameplay.
+     
+     Python 3 Migration:
+     * Ported to Python 3.8+ compatibility (tested with Python 3.12).
+     * Ran 2to3 conversion and applied manual fixes throughout codebase.
+     * Fixed asyncore removal in Python 3.12 (removed dependency).
+     * Fixed Cerealizer/pickle compatibility issues.
+     * Replaced deprecated StringType with str.
+     * Replaced deprecated sha module with hashlib.
+     * Fixed ConfigParser encoding for Python 3.
+     * Fixed Image.tostring() to Image.tobytes() for Pillow compatibility.
+     * Fixed pygame event.str to event.unicode.
+     * Fixed sort() cmp parameter to use key parameter (Python 3 style).
+     * Fixed file() builtin to use io.IOBase.
+     * Fixed __cmp__ to __eq__/__ne__ in Svg.py.
+     * Fixed gettext .decode() removal (Python 3 gettext returns str).
+     * Fixed MIDI module for Python 3 bytes/string handling.
+     * Fixed StringIO to BytesIO in MIDI output.
+     * Fixed configparser string value requirement in Song.py.
+     * Fixed MidiInfoReader.Done exception reference.
+     * Fixed str parameter shadowing in Dialogs.py keyPressed methods.
+     
+     Single-Player Refactor:
+     * Refactored to single-player only architecture.
+     * Removed all networking/multiplayer code (Session, Network, Server, 
+       World, Lobby, Messages, asyncore dependency).
+     * Created new SinglePlayer.py module for simplified game management.
+     * Simplified Scene.py by removing message handling code.
+     * Updated MainMenu.py to use SinglePlayerSession directly.
+     * Cleaned up SceneFactory.py to only create client scenes.
+     
+     Gameplay Fixes:
+     * Fixed pause functionality (ESC key now properly pauses game).
+     * Fixed "Return to Song" button in pause menu.
+     * Fixed input handling so F1-F5 keys work as frets during gameplay.
+     * Added proper paused state to prevent game from ending while paused.
+     * Fixed layer management to prevent menu key interception during gameplay.
+     * Fixed crash when playing songs with no note data (empty MIDI).
+     * Added graceful handling for songs with no playable difficulties.
+     * Fixed Menu crash when choices list is empty.
+     * Added error handling for audio mixer initialization.
+     
+     Dependency Updates:
+     * Updated to use Pillow instead of PIL.
+     * Removed deprecated psyco dependency.
+     * Compatible with pygame-ce 2.5+ (recommended for SDL 2.x support).
+     * Removed legacy build system (Makefile, setup.py, MANIFEST).
+     
+     Code Quality:
+     * Improved error handling for loading legacy score data.
+     * Fixed integer division issues in Mesh.py.
+     * Cleaned up backup files and test data.
+     * Updated documentation for modern systems.
+     * Updated credits to reflect Python 3 port contributors.
+     
+     Contributors:
+     * Python 3 port and modernization by Mauricio Rosell Pena (2026).
+     * Original game by Sami Kyöstilä, Tommi Inkilä, Joonas Kerttula (2006-2008).
+
 Version 1.3.110
 
      * Wrote concise instructions for building and installing the game.

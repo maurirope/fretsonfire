@@ -1,8 +1,9 @@
 #####################################################################
-# -*- coding: iso-8859-1 -*-                                        #
+# -*- coding: utf-8 -*-                                             #
 #                                                                   #
 # Frets on Fire                                                     #
-# Copyright (C) 2006 Sami Kyöstilä                                  #
+# Copyright (C) 2006 Sami KyÃ¶stilÃ¤                                  #
+# Python 3 Port (2026)                                              #
 #                                                                   #
 # This program is free software; you can redistribute it and/or     #
 # modify it under the terms of the GNU General Public License       #
@@ -19,6 +20,12 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,        #
 # MA  02110-1301, USA.                                              #
 #####################################################################
+
+"""
+Unit tests for the Song module.
+
+Tests song loading, saving, MIDI note parsing, and BPM detection functionality.
+"""
 
 import unittest, pygame
 import shutil, os, sys
@@ -69,7 +76,7 @@ class SongTest(unittest.TestCase):
         t2, n2 = event[1]
         
         if "-v" in sys.argv:
-          print "%8d. %.3f + %.3f\t%2d\t     %.3f + %.3f\t%2d" % (i, t1, n1.length, n1.number, t2, n2.length, n2.number)
+          print("%8d. %.3f + %.3f\t%2d\t     %.3f + %.3f\t%2d" % (i, t1, n1.length, n1.number, t2, n2.length, n2.number))
         
         # Allow 2ms of rounding error
         assert abs(t1 - t2) < 2

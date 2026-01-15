@@ -1,8 +1,9 @@
 #####################################################################
-# -*- coding: iso-8859-1 -*-                                        #
+# -*- coding: utf-8 -*-                                             #
 #                                                                   #
 # Frets on Fire                                                     #
-# Copyright (C) 2006 Sami Kyöstilä                                  #
+# Copyright (C) 2006 Sami KyÃ¶stilÃ¤                                  #
+# Python 3 Port (2026)                                              #
 #                                                                   #
 # This program is free software; you can redistribute it and/or     #
 # modify it under the terms of the GNU General Public License       #
@@ -24,17 +25,70 @@ from OpenGL.GL import *
 
 import Collada
 
+"""
+3D Mesh Loading and Rendering Module.
+
+This module provides functionality for loading and rendering 3D meshes
+from COLLADA (.dae) files using OpenGL. It handles geometry parsing,
+lighting setup, material configuration, and efficient rendering through
+OpenGL display lists.
+
+The module supports:
+    - Loading COLLADA documents with geometry, lights, and materials
+    - Rendering polygons and triangles with normals and texture coordinates
+    - Setting up Phong shading materials
+    - Caching rendered geometry in OpenGL display lists for performance
+"""
+
+
 class Mesh:
+  """A 3D mesh loaded from a COLLADA file.
+
+  This class handles loading, parsing, and rendering of 3D geometry
+  from COLLADA (.dae) files. It uses OpenGL display lists to cache
+  rendered geometry for efficient repeated rendering.
+
+  Attributes:
+      doc (Collada.DaeDocument): The parsed COLLADA document.
+      geoms (dict): Mapping of geometry names to OpenGL display list IDs
+          for individual geometry primitives.
+      fullGeoms (dict): Mapping of geometry names to OpenGL display list IDs
+          for complete scene geometry including transforms and lighting.
+  """
+
   def __init__(self, fileName):
+    """Initialize a Mesh by loading a COLLADA file.
+
+    Args:
+        fileName (str): Path to the COLLADA (.dae) file to load.
+    """
     self.doc = Collada.DaeDocument()
     self.doc.LoadDocumentFromFile(fileName)
     self.geoms = {}
     self.fullGeoms = {}
     
   def _unflatten(self, array, stride):
-    return [tuple(array[i * stride : (i + 1) * stride]) for i in range(len(array) / stride)]
+    """Convert a flat array into a list of tuples with a given stride.
+
+    Args:
+        array (list): The flat array of values to unflatten.
+        stride (int): The number of elements per tuple.
+
+    Returns:
+        list: A list of tuples, each containing 'stride' consecutive elements
+            from the original array.
+    """
+    return [tuple(array[i * stride : (i + 1) * stride]) for i in range(len(array) // stride)]
 
   def setupLight(self, light, n, pos):
+    """Configure an OpenGL light from a COLLADA light definition.
+
+    Args:
+        light (Collada.DaeLight): The COLLADA light object containing
+            light properties.
+        n (int): The light index (0-7) for OpenGL light selection.
+        pos (list): The light position as [x, y, z] coordinates.
+    """
     l = light.techniqueCommon
     glEnable(GL_LIGHTING)
     glEnable(GL_LIGHT0 + n)
@@ -43,6 +97,15 @@ class Mesh:
     glLightfv(GL_LIGHT0 + n, GL_AMBIENT, (0.0, 0.0, 0.0, 0.0))
 
   def setupMaterial(self, material):
+    """Configure OpenGL materials from a COLLADA material binding.
+
+    Iterates through the material's effects and applies Phong shading
+    properties (ambient, diffuse, specular, shininess) to OpenGL.
+
+    Args:
+        material (Collada.DaeBindMaterial): The COLLADA material binding
+            containing material and effect references.
+    """
     for m in material.techniqueCommon.iMaterials:
       if m.object:
         for fx in m.object.iEffects:
@@ -54,7 +117,17 @@ class Mesh:
               glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE,   shader.diffuse.color.rgba)
               glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR,  shader.specular.color.rgba)
 
-  def render(self, geomName = None):
+  def render(self, geomName=None):
+    """Render the mesh geometry using OpenGL.
+
+    Renders the specified geometry node or all geometry if no name is given.
+    Uses cached display lists for efficiency; creates and caches new display
+    lists on first render. Sets up scene lighting and applies node transforms.
+
+    Args:
+        geomName (str, optional): Name of a specific geometry node to render.
+            If None, renders all geometry in the scene. Defaults to None.
+    """
     if geomName in self.fullGeoms:
       glCallList(self.fullGeoms[geomName])
       return

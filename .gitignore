@@ -1,0 +1,4 @@
+src/__pycache__/
+src/midi/__pycache__/
+__pycache__/
+*.pyc

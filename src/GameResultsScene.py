@@ -1,8 +1,9 @@
 #####################################################################
-# -*- coding: iso-8859-1 -*-                                        #
+# -*- coding: utf-8 -*-                                             #
 #                                                                   #
 # Frets on Fire                                                     #
-# Copyright (C) 2006 Sami Kyöstilä                                  #
+# Copyright (C) 2006 Sami KyÃ¶stilÃ¤                                  #
+# Python 3 Port (2026)                                              #
 #                                                                   #
 # This program is free software; you can redistribute it and/or     #
 # modify it under the terms of the GNU General Public License       #
@@ -20,6 +21,21 @@
 # MA  02110-1301, USA.                                              #
 #####################################################################
 
+"""
+Game results scene for Frets on Fire.
+
+This module displays the post-game results screen showing player performance,
+including score, accuracy, star rating, and high score management. It handles:
+
+- Score calculation and star rating (0-5 stars based on accuracy)
+- High score entry and persistence
+- Optional score upload to online leaderboards
+- Victory/defeat audio taunts based on performance
+- Menu navigation for replay, song change, or quit options
+
+The scene is displayed after completing a song in GuitarScene.
+"""
+
 from Scene import SceneServer, SceneClient
 from Menu import Menu
 import Player
@@ -35,14 +51,83 @@ import math
 import random
 from OpenGL.GL import *
 
+
 class GameResultsScene:
+  """
+  Base class for game results scene functionality.
+  
+  This empty base class provides a common type for both server and client
+  variants of the results scene. In the single-player architecture,
+  only the Client variant is actively used.
+  """
   pass
+
 
 class GameResultsSceneServer(GameResultsScene, SceneServer):
+  """
+  Server-side game results scene stub.
+  
+  This class exists for architectural compatibility but is not used
+  in single-player mode.
+  """
   pass
 
+
 class GameResultsSceneClient(GameResultsScene, SceneClient):
+  """
+  Client-side game results scene implementation.
+  
+  Displays the player's performance after completing a song, including
+  score, accuracy percentage, and star rating. Handles high score
+  entry and provides navigation options.
+  
+  Attributes:
+      libraryName: The song library containing the completed song.
+      songName: The identifier of the completed song.
+      stars: Star rating (0-5) based on accuracy.
+      accuracy: Percentage of notes hit correctly.
+      counter: Animation timer in milliseconds.
+      showHighscores: Whether to display the high scores table.
+      highscoreIndex: Index of player's score in high scores, if applicable.
+      taunt: Audio clip to play based on performance.
+      uploadingScores: Whether score upload is in progress.
+      nextScene: Callback for the next scene to transition to.
+      menu: Navigation menu with replay/quit options.
+      song: The loaded song data for score calculations.
+      background: Background SVG image.
+  """
+  
+  """
+  Client-side game results scene implementation.
+  
+  Displays the player's performance after completing a song, including
+  score, accuracy percentage, and star rating. Handles high score
+  entry and provides navigation options.
+  
+  Attributes:
+      libraryName: The song library containing the completed song.
+      songName: The identifier of the completed song.
+      stars: Star rating (0-5) based on accuracy.
+      accuracy: Percentage of notes hit correctly.
+      counter: Animation timer in milliseconds.
+      showHighscores: Whether to display the high scores table.
+      highscoreIndex: Index of player's score in high scores, if applicable.
+      taunt: Audio clip to play based on performance.
+      uploadingScores: Whether score upload is in progress.
+      nextScene: Callback for the next scene to transition to.
+      menu: Navigation menu with replay/quit options.
+      song: The loaded song data for score calculations.
+      background: Background SVG image.
+  """
+  
   def createClient(self, libraryName, songName):
+    """
+    Initialize the game results scene client.
+    
+    Args:
+        libraryName: The library/folder containing the completed song.
+        songName: The identifier of the song that was just played.
+    """
     self.libraryName     = libraryName
     self.songName        = songName
     self.stars           = 0
@@ -64,9 +149,22 @@ class GameResultsSceneClient(GameResultsScene, SceneClient):
     self.engine.resource.load(self, "song", lambda: Song.loadSong(self.engine, songName, library = self.libraryName, notesOnly = True), onLoad = self.songLoaded)
     self.engine.loadSvgDrawing(self, "background", "keyboard.svg")
     Dialogs.showLoadingScreen(self.engine, lambda: self.song, text = _("Chilling..."))
+
+  def keyPressed(self, key, str):
+    """
+    Handle key press events on the results screen.
     
-  def keyPressed(self, key, unicode):
-    ret = SceneClient.keyPressed(self, key, unicode)
+    Triggers high score entry dialog if the player achieved a new high
+    score, then transitions to showing the high scores table and menu.
+    
+    Args:
+        key: The pygame key code that was pressed.
+        str: The string representation of the key (for text input).
+    
+    Returns:
+        True if the key was handled, False otherwise.
+    """
+    ret = SceneClient.keyPressed(self, key, str)
 
     c = self.controls.keyPressed(key)
     if self.song and (c in [Player.KEY1, Player.KEY2, Player.CANCEL, Player.ACTION1, Player.ACTION2] or key == pygame.K_RETURN):
@@ -93,25 +191,38 @@ class GameResultsSceneClient(GameResultsScene, SceneClient):
     return ret
 
   def hidden(self):
+    """Called when the scene is hidden, triggers transition to next scene."""
     SceneClient.hidden(self)
     if self.nextScene:
       self.nextScene()
-    
+
   def quit(self):
+    """Exit to main menu, ending the current game session."""
     self.engine.view.popLayer(self.menu)
-    self.session.world.finishGame()
-    
+    self.session.finishGame()
+
   def replay(self):
+    """Replay the same song with the same difficulty."""
     self.engine.view.popLayer(self.menu)
-    self.session.world.deleteScene(self)
-    self.nextScene = lambda: self.session.world.createScene("GuitarScene", libraryName = self.libraryName, songName = self.songName)
-  
+    self.session.deleteScene(self)
+    self.nextScene = lambda: self.session.createScene("GuitarScene", libraryName = self.libraryName, songName = self.songName)
+
   def changeSong(self):
+    """Return to song selection to choose a different song."""
     self.engine.view.popLayer(self.menu)
-    self.session.world.deleteScene(self)
-    self.nextScene = lambda: self.session.world.createScene("SongChoosingScene")
-   
+    self.session.deleteScene(self)
+    self.nextScene = lambda: self.session.createScene("SongChoosingScene")
+
   def songLoaded(self, song):
+    """
+    Callback when song data finishes loading.
+    
+    Calculates star rating and accuracy based on player performance,
+    and selects an appropriate taunt audio clip to play.
+    
+    Args:
+        song: The loaded Song object containing track data.
+    """
     song.difficulty = self.player.difficulty
     notes = len([1 for time, event in song.track.getAllEvents() if isinstance(event, Song.Note)])
     
@@ -135,6 +246,14 @@ class GameResultsSceneClient(GameResultsScene, SceneClient):
         self.engine.resource.load(self, "taunt", lambda: Sound(self.engine.resource.fileName(taunt)))
 
   def run(self, ticks):
+    """
+    Process one frame of the results scene.
+    
+    Updates animation timers and plays the taunt audio after a delay.
+    
+    Args:
+        ticks: Time elapsed since last frame in milliseconds.
+    """
     SceneClient.run(self, ticks)
     self.time    += ticks / 50.0
     self.counter += ticks
@@ -143,11 +262,31 @@ class GameResultsSceneClient(GameResultsScene, SceneClient):
       self.taunt.setVolume(self.engine.config.get("audio", "guitarvol"))
       self.taunt.play()
       self.taunt = None
-    
+
   def anim(self, start, ticks):
+    """
+    Calculate animation progress for timed reveal effects.
+    
+    Args:
+        start: Start time in milliseconds for the animation.
+        ticks: End time in milliseconds when animation completes.
+    
+    Returns:
+        Float between 0.0 and 1.0 representing animation progress.
+    """
     return min(1.0, float(max(start, self.counter)) / ticks)
 
   def render(self, visibility, topMost):
+    """
+    Render the results scene visuals.
+    
+    Draws the animated background, score display with stars, accuracy
+    statistics, and high scores table when visible.
+    
+    Args:
+        visibility: Float 0.0-1.0 indicating scene visibility for transitions.
+        topMost: Whether this is the top-most scene layer.
+    """
     SceneClient.render(self, visibility, topMost)
     
     bigFont = self.engine.data.bigFont
@@ -188,8 +327,8 @@ class GameResultsSceneClient(GameResultsScene, SceneClient):
           else:
             Theme.setBaseColor(1 - v)
           font.render("%d." % (i + 1), (x, y),    scale = scale)
-          font.render(unicode(score), (x + .05, y),   scale = scale)
-          font.render(unicode(Data.STAR2 * stars + Data.STAR1 * (5 - stars)), (x + .25, y), scale = scale * .9)
+          font.render(str(score), (x + .05, y),   scale = scale)
+          font.render(str(Data.STAR2 * stars + Data.STAR1 * (5 - stars)), (x + .25, y), scale = scale * .9)
           font.render(name, (x + .5, y), scale = scale)
           y += h
           

@@ -1,8 +1,9 @@
 #####################################################################
-# -*- coding: iso-8859-1 -*-                                        #
+# -*- coding: utf-8 -*-                                             #
 #                                                                   #
 # Frets on Fire                                                     #
-# Copyright (C) 2006 Sami Kyöstilä                                  #
+# Copyright (C) 2006 Sami KyÃ¶stilÃ¤                                  #
+# Python 3 Port (2026)                                              #
 #                                                                   #
 # This program is free software; you can redistribute it and/or     #
 # modify it under the terms of the GNU General Public License       #
@@ -19,9 +20,41 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,        #
 # MA  02110-1301, USA.                                              #
 #####################################################################
+"""
+SVG Image Loading and Rendering Module.
+
+This module provides functionality for loading, parsing, and rendering SVG
+(Scalable Vector Graphics) images in OpenGL. It supports a subset of the SVG
+specification including paths, linear/radial gradients, and basic transforms.
+
+The module uses a hybrid rendering approach:
+    - Pre-rendered PNG textures are preferred when available for performance
+    - SVG files can be parsed and rendered using OpenGL primitives
+    - Caching mechanisms optimize repeated rendering operations
+
+Key Components:
+    - SvgDrawing: Main class for loading and drawing SVG images
+    - SvgContext: OpenGL rendering context for SVG operations
+    - SvgCache: Caching system for optimized repeated rendering
+    - SvgHandler: SAX parser handler for SVG XML parsing
+    - SvgTransform: 2D transformation matrix operations
+    - SvgRenderStyle: Stroke and fill style management
+    - SvgGradient: Gradient fill support (linear and radial)
+
+Limitations:
+    - Only translate() and matrix() transforms are supported
+    - Only paths are supported (no rectangles, circles, etc.)
+    - Only constant color, linear gradient, and radial gradient fills
+
+Example:
+    >>> context = SvgContext((0, 0, 800, 600))
+    >>> drawing = SvgDrawing(context, "image.svg")
+    >>> drawing.draw(color=(1, 1, 1, 1))
+"""
 
 import re
 import os
+import io
 from xml import sax
 from OpenGL.GL import *
 from numpy import reshape, dot, transpose, identity, zeros, float32
@@ -29,6 +62,7 @@ from math import sin, cos
 
 import Log
 import Config
+import SvgColors
 from Texture import Texture, TextureException
 
 # Amanith support is now deprecated
@@ -62,7 +96,21 @@ NORMAL_QUALITY = amanith.G_NORMAL_RENDERING_QUALITY
 HIGH_QUALITY   = amanith.G_HIGH_RENDERING_QUALITY
 
 class SvgGradient:
+  """Represents an SVG gradient (linear or radial) with transformation support.
+  
+  Attributes:
+      gradientDesc: The Amanith gradient descriptor object.
+      transform: SvgTransform instance for gradient coordinate transformation.
+  """
+  
   def __init__(self, gradientDesc, transform):
+    """Initialize an SVG gradient.
+    
+    Args:
+        gradientDesc: Amanith gradient descriptor from CreateLinearGradient
+            or CreateRadialGradient.
+        transform: SvgTransform instance for the gradient's coordinate space.
+    """
     self.gradientDesc = gradientDesc
     self.transform = transform
 
@@ -71,7 +119,24 @@ class SvgGradient:
     self.gradientDesc.SetMatrix(transform.getGMatrix(m))
 
 class SvgContext:
+  """OpenGL rendering context for SVG drawing operations.
+  
+  Manages the Amanith drawing board, viewport geometry, projection settings,
+  and rendering quality for SVG rendering.
+  
+  Attributes:
+      kernel: Amanith GKernel instance.
+      geometry: Tuple of (x, y, width, height) defining the viewport.
+      drawBoard: Amanith GOpenGLBoard for rendering operations.
+      transform: SvgTransform instance for coordinate transformations.
+  """
+  
   def __init__(self, geometry):
+    """Initialize the SVG rendering context.
+    
+    Args:
+        geometry: Tuple of (x, y, width, height) defining the viewport area.
+    """
     self.kernel = amanith.GKernel()
     self.geometry = geometry
     self.drawBoard = amanith.GOpenGLBoard(geometry[0], geometry[0] + geometry[2],
@@ -90,12 +155,23 @@ class SvgContext:
                "to 32 bit color precision.")
 
   def setGeometry(self, geometry = None):
+    """Set the viewport geometry and scale transform.
+    
+    Args:
+        geometry: Tuple of (x, y, width, height) for the viewport.
+    """
     self.drawBoard.SetViewport(geometry[0], geometry[1],
                                geometry[2], geometry[3])
     self.transform.reset()
     self.transform.scale(geometry[2] / 640.0, geometry[3] / 480.0)
 
   def setProjection(self, geometry = None):
+    """Set the projection matrix for rendering.
+    
+    Args:
+        geometry: Optional tuple of (x, y, width, height). Uses stored
+            geometry if not provided.
+    """
     geometry = geometry or self.geometry
     self.drawBoard.SetProjection(geometry[0], geometry[0] + geometry[2],
                                  geometry[1], geometry[1] + geometry[3])
@@ -115,6 +191,11 @@ class SvgContext:
     #self.drawBoard.SetRenderingQuality(q)
 
   def getRenderingQuality(self):
+    """Get the current rendering quality setting.
+    
+    Returns:
+        Quality constant: LOW_QUALITY, NORMAL_QUALITY, or HIGH_QUALITY.
+    """
     q = self.drawBoard.RenderingQuality()
     if q == amanith.G_LOW_RENDERING_QUALITY:
       return LOW_QUALITY
@@ -123,10 +204,37 @@ class SvgContext:
     return HIGH_QUALITY
 
   def clear(self, r = 0, g = 0, b = 0, a = 0):
+    """Clear the drawing area with a specified color.
+    
+    Args:
+        r: Red component (0.0-1.0). Defaults to 0.
+        g: Green component (0.0-1.0). Defaults to 0.
+        b: Blue component (0.0-1.0). Defaults to 0.
+        a: Alpha component (0.0-1.0). Defaults to 0.
+    """
     self.drawBoard.Clear(r, g, b, a)
 
 class SvgRenderStyle:
+  """Manages stroke and fill styling for SVG rendering.
+  
+  Handles parsing of SVG style attributes and applying them to the
+  Amanith drawing board for rendering paths.
+  
+  Attributes:
+      strokeColor: Stroke color as (r, g, b, a) tuple or SvgGradient.
+      strokeWidth: Stroke width in pixels.
+      fillColor: Fill color as (r, g, b, a) tuple or SvgGradient.
+      strokeLineJoin: Line join style (miter, round, or bevel).
+      strokeOpacity: Stroke opacity (0.0-1.0).
+      fillOpacity: Fill opacity (0.0-1.0).
+  """
+  
   def __init__(self, baseStyle = None):
+    """Initialize a render style, optionally copying from a base style.
+    
+    Args:
+        baseStyle: Optional SvgRenderStyle to copy attributes from.
+    """
     self.strokeColor = None
     self.strokeWidth = None
     self.fillColor = None
@@ -138,6 +246,14 @@ class SvgRenderStyle:
       self.__dict__.update(baseStyle.__dict__)
 
   def parseStyle(self, style):
+    """Parse a CSS-style string into a dictionary.
+    
+    Args:
+        style: CSS style string (e.g., "stroke:#000;fill:#fff").
+    
+    Returns:
+        Dictionary mapping style property names to values.
+    """
     s = {}
     for m in re.finditer(r"(.+?):\s*(.+?)(;|$)\s*", style):
       s[m.group(1)] = m.group(2)
@@ -161,23 +277,26 @@ class SvgRenderStyle:
       if not defs:
         Log.warn("No patterns or gradients defined.")
         return None
-      m = re.match("url\(#(.+)\)", color)
+      m = re.match(r"url\(#(.+)\)", color)
       if m:
         id = m.group(1)
         if not id in defs:
           Log.warn("Pattern/gradient %s has not been defined." % id)
         return defs.get(id)
 
-  def __cmp__(self, s):
+  def __eq__(self, s):
     if s:
-      for k, v in self.__dict__.items():
+      for k, v in list(self.__dict__.items()):
         if v != getattr(s, k):
-          return 1
-      return 0
-    return 1
+          return False
+      return True
+    return False
+
+  def __ne__(self, s):
+    return not self.__eq__(s)
 
   def __repr__(self):
-    return "<SvgRenderStyle " + " ".join(["%s:%s" % (k, v) for k, v in self.__dict__.items()]) + ">"
+    return "<SvgRenderStyle " + " ".join(["%s:%s" % (k, v) for k, v in list(self.__dict__.items())]) + ">"
 
   def applyAttributes(self, attrs, defs):
     style = attrs.get("style")
@@ -241,7 +360,21 @@ class SvgRenderStyle:
       drawBoard.SetStrokeJoinStyle(self.strokeLineJoin)
 
 class SvgTransform:
+  """2D transformation matrix for SVG coordinate transformations.
+  
+  Supports translation, rotation, scaling, and arbitrary matrix transforms.
+  Wraps a 3x3 homogeneous transformation matrix using NumPy.
+  
+  Attributes:
+      matrix: 3x3 NumPy array representing the transformation matrix.
+  """
+  
   def __init__(self, baseTransform = None):
+    """Initialize a transform, optionally copying from a base transform.
+    
+    Args:
+        baseTransform: Optional SvgTransform to copy the matrix from.
+    """
     self._gmatrix = amanith.GMatrix33()
     self.reset()
     
@@ -256,7 +389,7 @@ class SvgTransform:
         dx, dy = [float(c) for c in m.groups()]
         self.matrix[0, 2] += dx
         self.matrix[1, 2] += dy
-      m = re.match(r"matrix\(\s*" + "\s*,\s*".join(["(.+?)"] * 6) + r"\s*\)", transform)
+      m = re.match(r"matrix\(\s*" + r"\s*,\s*".join(["(.+?)"] * 6) + r"\s*\)", transform)
       if m:
         e = [float(c) for c in m.groups()]
         e = [e[0], e[2], e[4], e[1], e[3], e[5], 0, 0, 1]
@@ -264,18 +397,35 @@ class SvgTransform:
         self.matrix = dot(self.matrix, m)
 
   def transform(self, transform):
+    """Concatenate another transform with this one.
+    
+    Args:
+        transform: SvgTransform to multiply with this transform.
+    """
     self.matrix = dot(self.matrix, transform.matrix)
 
   def reset(self):
+    """Reset the transform to the identity matrix."""
     self.matrix = identity(3, float32)
 
   def translate(self, dx, dy):
+    """Apply a translation to the transform.
+    
+    Args:
+        dx: Translation in the X direction.
+        dy: Translation in the Y direction.
+    """
     m = zeros((3, 3))
     m[0, 2] = dx
     m[1, 2] = dy
     self.matrix += m
 
   def rotate(self, angle):
+    """Apply a rotation to the transform.
+    
+    Args:
+        angle: Rotation angle in radians.
+    """
     m = identity(3, float32)
     s = sin(angle)
     c = cos(angle)
@@ -286,6 +436,12 @@ class SvgTransform:
     self.matrix = dot(self.matrix, m)
 
   def scale(self, sx, sy):
+    """Apply a scale transformation.
+    
+    Args:
+        sx: Scale factor in the X direction.
+        sy: Scale factor in the Y direction.
+    """
     m = identity(3, float32)
     m[0, 0] = sx
     m[1, 1] = sy
@@ -312,7 +468,28 @@ class SvgTransform:
     drawBoard.SetModelViewMatrix(self.getGMatrix(self.matrix))
 
 class SvgHandler(sax.ContentHandler):
+  """SAX content handler for parsing SVG XML documents.
+  
+  Processes SVG elements and converts them to drawing commands.
+  Maintains stacks for styles, transforms, and context to handle
+  nested SVG groups properly.
+  
+  Attributes:
+      drawBoard: Amanith drawing board for rendering.
+      styleStack: Stack of SvgRenderStyle for nested style inheritance.
+      contextStack: Stack tracking the current parsing context.
+      transformStack: Stack of SvgTransform for nested transforms.
+      defs: Dictionary of defined gradients and patterns by ID.
+      cache: SvgCache for caching rendered paths.
+  """
+  
   def __init__(self, drawBoard, cache):
+    """Initialize the SVG handler.
+    
+    Args:
+        drawBoard: Amanith GOpenGLBoard for rendering operations.
+        cache: SvgCache instance for caching drawing commands.
+    """
     self.drawBoard = drawBoard
     self.styleStack = [SvgRenderStyle()]
     self.contextStack = [None]
@@ -482,21 +659,50 @@ class SvgHandler(sax.ContentHandler):
       self.stops.append(attrs)
     
 class SvgCache:
+  """Caching system for optimized SVG rendering.
+  
+  Stores rendered SVG paths in a cache bank for efficient repeated
+  drawing. Groups strokes by style to minimize state changes.
+  
+  Attributes:
+      drawBoard: Amanith drawing board for rendering.
+      displayList: List of (style, slot_ranges) tuples for cached paths.
+      transforms: Dictionary mapping cache slots to their transforms.
+      bank: Amanith cache bank for storing rendered geometry.
+  """
+  
   def __init__(self, drawBoard):
+    """Initialize the SVG cache.
+    
+    Args:
+        drawBoard: Amanith GOpenGLBoard for rendering operations.
+    """
     self.drawBoard = drawBoard
     self.displayList = []
     self.transforms = {}
     self.bank = drawBoard.CreateCacheBank()
 
   def beginCaching(self):
+    """Begin caching mode for recording drawing commands."""
     self.drawBoard.SetCacheBank(self.bank)
     self.drawBoard.SetTargetMode(amanith.G_CACHE_MODE)
 
   def endCaching(self):
+    """End caching mode and return to normal rendering."""
     self.drawBoard.SetTargetMode(amanith.G_COLOR_MODE)
     self.drawBoard.SetCacheBank(None)
 
   def addStroke(self, style, transform, slot):
+    """Add a stroke to the cache display list.
+    
+    Optimizes storage by grouping consecutive strokes with the same
+    style into contiguous slot ranges.
+    
+    Args:
+        style: SvgRenderStyle for the stroke.
+        transform: SvgTransform for the stroke's coordinate space.
+        slot: Cache slot number returned by DrawPaths.
+    """
     if self.displayList:
       lastStyle = self.displayList[-1][0]
     else:
@@ -514,6 +720,11 @@ class SvgCache:
       self.displayList.append((style, [(slot, slot)]))
 
   def draw(self, baseTransform):
+    """Draw all cached strokes with a base transformation.
+    
+    Args:
+        baseTransform: SvgTransform to apply to all cached geometry.
+    """
     self.drawBoard.SetCacheBank(self.bank)
     for style, slotList in self.displayList:
       transform = SvgTransform(baseTransform)
@@ -531,7 +742,35 @@ class SvgCache:
       pass
 
 class SvgDrawing:
+  """Main class for loading and rendering SVG images.
+  
+  Handles loading SVG files or data, with support for pre-rendered PNG
+  textures for improved performance. Provides transformation and
+  rendering capabilities.
+  
+  Attributes:
+      svgData: Raw SVG XML data string (None if using texture).
+      texture: Texture instance for bitmap rendering.
+      context: SvgContext for rendering operations.
+      cache: SvgCache for cached vector rendering.
+      transform: SvgTransform for positioning and scaling.
+  """
+  
   def __init__(self, context, svgData):
+    """Initialize an SVG drawing from file path or data.
+    
+    Supports loading from:
+        - File path to .svg file (will use .png if available)
+        - File path to .png file directly
+        - File-like object containing SVG data
+    
+    Args:
+        context: SvgContext for rendering operations.
+        svgData: File path string or file-like object with SVG content.
+    
+    Raises:
+        RuntimeError: If the file cannot be loaded or texture created.
+    """
     self.svgData = None
     self.texture = None
     self.context = context
@@ -539,7 +778,7 @@ class SvgDrawing:
     self.transform = SvgTransform()
 
     # Detect the type of data passed in
-    if type(svgData) == file:
+    if isinstance(svgData, io.IOBase):
       self.svgData = svgData.read()
     elif type(svgData) == str:
       bitmapFile = svgData.replace(".svg", ".png")
@@ -575,6 +814,18 @@ class SvgDrawing:
     del self.svgData
 
   def convertToTexture(self, width, height):
+    """Convert the SVG drawing to a texture for faster rendering.
+    
+    Note: This method is currently deprecated. SVG files should have
+    pre-rendered PNG versions available.
+    
+    Args:
+        width: Texture width in pixels.
+        height: Texture height in pixels.
+    
+    Raises:
+        RuntimeError: If no valid texture exists.
+    """
     if self.texture:
       return
 
@@ -625,6 +876,15 @@ class SvgDrawing:
     glMatrixMode(GL_MODELVIEW)
 
   def draw(self, color = (1, 1, 1, 1)):
+    """Render the SVG drawing to the screen.
+    
+    Applies the current transform and draws the image using either
+    the cached texture or vector rendering.
+    
+    Args:
+        color: RGBA color tuple (r, g, b, a) to modulate the image.
+            Defaults to white with full opacity.
+    """
     glMatrixMode(GL_TEXTURE)
     glPushMatrix()
     glMatrixMode(GL_PROJECTION)

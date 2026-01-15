@@ -1,8 +1,9 @@
 #####################################################################
-# -*- coding: iso-8859-1 -*-                                        #
+# -*- coding: utf-8 -*-                                             #
 #                                                                   #
 # Frets on Fire                                                     #
-# Copyright (C) 2006 Sami Kyöstilä                                  #
+# Copyright (C) 2006 Sami KyÃ¶stilÃ¤                                  #
+# Python 3 Port (2026)                                              #
 #                                                                   #
 # This program is free software; you can redistribute it and/or     #
 # modify it under the terms of the GNU General Public License       #
@@ -19,6 +20,26 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,        #
 # MA  02110-1301, USA.                                              #
 #####################################################################
+
+"""
+GuitarScene - Main gameplay scene for Frets on Fire.
+
+This module implements the core gameplay experience where players hit notes
+on a virtual guitar fretboard in sync with music. It handles note detection,
+scoring, streak tracking, visual rendering of the game board, and user input
+processing during active gameplay.
+
+The scene uses a client-server architecture (GuitarSceneServer/GuitarSceneClient)
+for potential networked play, though single-player uses only the client.
+
+Key features:
+    - Real-time note hit detection and scoring
+    - Streak multiplier system (up to 4x)
+    - Visual feedback for hits, misses, and multipliers
+    - Pause menu with settings access
+    - Auto-play cheat mode ("Jurgen")
+    - Tutorial event support (text and picture overlays)
+"""
 
 from Scene import SceneServer, SceneClient
 from Song import Note, TextEvent, PictureEvent, loadSong
@@ -40,19 +61,67 @@ import random
 import os
 from OpenGL.GL import *
 
+
 class GuitarScene:
+  """
+  Base class for the guitar gameplay scene.
+  
+  Provides common functionality shared between server and client
+  implementations of the gameplay scene. Currently serves as a
+  mixin base for the client-server architecture.
+  """
   pass
+
 
 class GuitarSceneServer(GuitarScene, SceneServer):
+  """
+  Server-side implementation of the guitar gameplay scene.
+  
+  Handles authoritative game state for networked play. Currently
+  a placeholder for future multiplayer functionality.
+  """
   pass
 
+
 class GuitarSceneClient(GuitarScene, SceneClient):
+  """
+  Client-side implementation of the guitar gameplay scene.
+  
+  This is the main gameplay class that handles all aspects of the
+  guitar hero-style gameplay experience.
+  
+  Attributes:
+      guitar (Guitar): The guitar/fretboard controller and renderer.
+      song (Song): The currently loaded song being played.
+      visibility (float): Current visibility level for fade effects (0.0-1.0).
+      libraryName (str): Name of the song library containing the current song.
+      songName (str): Name of the currently playing song.
+      done (bool): Whether the song has finished playing.
+      paused (bool): Whether the game is currently paused.
+      autoPlay (bool): Whether auto-play (Jurgen) mode is enabled.
+      countdown (float): Countdown timer before song starts.
+      player (Player): The player object tracking score and stats.
+      stage (Stage): The background stage renderer.
+      menu (Menu): The pause menu instance.
+  """
+
   def createClient(self, libraryName, songName):
+    """
+    Initialize the gameplay scene with a specific song.
+    
+    Sets up the guitar controller, loads the song and stage assets,
+    configures audio settings, and creates the pause menu.
+    
+    Args:
+        libraryName (str): Path to the song library folder.
+        songName (str): Name of the song folder to load.
+    """
     self.guitar           = Guitar(self.engine)
     self.visibility       = 0.0
     self.libraryName      = libraryName
     self.songName         = songName
     self.done             = False
+    self.paused           = False
     self.sfxChannel       = self.engine.audio.getChannel(self.engine.audio.getChannelCount() - 1)
     self.lastMultTime     = None
     self.cheatCodes       = [
@@ -84,7 +153,7 @@ class GuitarSceneClient(GuitarScene, SceneClient):
     settingsMenu.fadeScreen = True
 
     self.menu = Menu(self.engine, [
-      (_("Return to Song"),    lambda: None),
+      (_("Return to Song"),    self.returnToSong),
       (_("Restart Song"),      self.restartSong),
       (_("Change Song"),       self.changeSong),
       (_("Settings"),          settingsMenu),
@@ -93,16 +162,30 @@ class GuitarSceneClient(GuitarScene, SceneClient):
 
     self.restartSong()
 
+  def returnToSong(self):
+    """Close the pause menu and return to active gameplay."""
+    self.engine.view.popLayer(self.menu)
+
   def pauseGame(self):
+    """Pause the game and stop song playback."""
+    self.paused = True
     if self.song:
       self.song.pause()
 
   def resumeGame(self):
+    """Resume gameplay from a paused state and reload settings."""
+    self.paused = False
     self.loadSettings()
     if self.song:
       self.song.unpause()
 
   def loadSettings(self):
+    """
+    Load audio and game settings from the configuration.
+    
+    Updates delay, volume levels, and guitar mode settings.
+    Also applies volume settings to the currently playing song.
+    """
     self.delay            = self.engine.config.get("audio", "delay")
     self.screwUpVolume    = self.engine.config.get("audio", "screwupvol")
     self.guitarVolume     = self.engine.config.get("audio", "guitarvol")
@@ -115,6 +198,16 @@ class GuitarSceneClient(GuitarScene, SceneClient):
       self.song.setRhythmVolume(self.rhythmVolume)
     
   def songLoaded(self, song):
+    """
+    Callback invoked when the song resource finishes loading.
+    
+    Configures the song difficulty and applies any additional
+    delay specified in the song metadata. Also disables tapping
+    indicators if tapping is disabled in settings.
+    
+    Args:
+        song (Song): The loaded song object.
+    """
     song.difficulty = self.player.difficulty
     self.delay += song.info.delay
 
@@ -125,22 +218,39 @@ class GuitarSceneClient(GuitarScene, SceneClient):
           event.tappable = False
 
   def quit(self):
+    """
+    Quit the current game session and return to the main menu.
+    
+    Stops the song, cleans up resources, and signals the session
+    to finish the game.
+    """
     if self.song:
       self.song.stop()
       self.song  = None
     self.done = True
     self.engine.view.popLayer(self.menu)
-    self.session.world.finishGame()
+    self.session.finishGame()
 
   def changeSong(self):
+    """
+    Stop the current song and navigate to the song selection screen.
+    
+    Cleans up the current scene and creates a new SongChoosingScene.
+    """
     if self.song:
       self.song.stop()
       self.song  = None
     self.engine.view.popLayer(self.menu)
-    self.session.world.deleteScene(self)
-    self.session.world.createScene("SongChoosingScene")
+    self.session.deleteScene(self)
+    self.session.createScene("SongChoosingScene")
 
   def restartSong(self):
+    """
+    Restart the current song from the beginning.
+    
+    Resets player stats, stage state, and cheat code tracking.
+    Initializes the countdown before song playback begins.
+    """
     self.engine.data.startSound.play()
     self.engine.view.popLayer(self.menu)
     self.player.reset()
@@ -157,7 +267,21 @@ class GuitarSceneClient(GuitarScene, SceneClient):
     self.song.stop()
 
   def run(self, ticks):
+    """
+    Main game loop update called each frame.
+    
+    Handles song playback, note detection, auto-play logic,
+    countdown management, and triggers game end when song completes.
+    
+    Args:
+        ticks (float): Time elapsed since last update in milliseconds.
+    """
     SceneClient.run(self, ticks)
+    
+    # Skip updates when paused
+    if self.paused:
+      return
+      
     pos = self.getSongPosition()
 
     # update song
@@ -165,7 +289,7 @@ class GuitarSceneClient(GuitarScene, SceneClient):
       # update stage
       self.stage.run(pos, self.guitar.currentPeriod)
 
-      if self.countdown <= 0 and not self.song.isPlaying() and not self.done:
+      if self.countdown <= 0 and not self.song.isPlaying() and not self.done and not self.paused:
         self.goToResults()
         return
         
@@ -216,18 +340,33 @@ class GuitarSceneClient(GuitarScene, SceneClient):
         self.doPick()
 
   def endPick(self):
+    """
+    End the current note pick and finalize scoring.
+    
+    Calculates any extra score from held notes and updates
+    the player's score. Mutes guitar if pick was unsuccessful.
+    """
     score = self.getExtraScoreForCurrentlyPlayedNotes()
     if not self.guitar.endPick(self.song.getPosition()):
       self.song.setGuitarVolume(0.0)
     self.player.addScore(score)
 
   def render3D(self):
+    """Render 3D stage elements in the background."""
     self.stage.render(self.visibility)
     
   def renderGuitar(self):
+    """Render the guitar fretboard and notes."""
     self.guitar.render(self.visibility, self.song, self.getSongPosition(), self.controls)
 
   def getSongPosition(self):
+    """
+    Get the current playback position in the song.
+    
+    Returns:
+        float: Current song position in milliseconds, adjusted for
+               countdown and audio delay. Returns 0.0 if no song loaded.
+    """
     if self.song:
       if not self.done:
         self.lastSongPos = self.song.getPosition()
@@ -238,6 +377,14 @@ class GuitarSceneClient(GuitarScene, SceneClient):
     return 0.0
     
   def doPick(self):
+    """
+    Attempt to pick/strum the currently held notes.
+    
+    Checks if the player's input matches the required notes at the
+    current song position. Awards score and increments streak on
+    success, or breaks streak and plays error sound on failure.
+    Also handles tappable note logic.
+    """
     if not self.song:
       return
 
@@ -270,6 +417,15 @@ class GuitarSceneClient(GuitarScene, SceneClient):
       self.sfxChannel.setVolume(self.screwUpVolume)
         
   def toggleAutoPlay(self):
+    """
+    Toggle auto-play (Jurgen) mode on or off.
+    
+    When enabled, the game automatically plays all notes perfectly.
+    This is activated via cheat code and marks the player as cheating.
+    
+    Returns:
+        bool: The new auto-play state.
+    """
     self.autoPlay = not self.autoPlay
     if self.autoPlay:
       Dialogs.showMessage(self.engine, _("Jurgen will show you how it is done."))
@@ -278,14 +434,33 @@ class GuitarSceneClient(GuitarScene, SceneClient):
     return self.autoPlay
 
   def goToResults(self):
+    """
+    End the current song and transition to the results screen.
+    
+    Stops playback and creates a GameResultsScene to display
+    the player's final score and statistics.
+    """
     if self.song:
       self.song.stop()
       self.song  = None
       self.done  = True
-      self.session.world.deleteScene(self)
-      self.session.world.createScene("GameResultsScene", libraryName = self.libraryName, songName = self.songName)
+      self.session.deleteScene(self)
+      self.session.createScene("GameResultsScene", libraryName = self.libraryName, songName = self.songName)
 
-  def keyPressed(self, key, unicode):
+  def keyPressed(self, key, str):
+    """
+    Handle keyboard key press events during gameplay.
+    
+    Processes fret key presses, strum/pick actions, pause menu,
+    tapping logic, and cheat code entry.
+    
+    Args:
+        key (int): The key code of the pressed key.
+        str (str): The string representation of the key.
+        
+    Returns:
+        bool: True if the key was handled, False otherwise.
+    """
     control = self.controls.keyPressed(key)
 
     if control in (Player.ACTION1, Player.ACTION2):
@@ -299,6 +474,7 @@ class GuitarSceneClient(GuitarScene, SceneClient):
       
     if control in (Player.ACTION1, Player.ACTION2) and self.song:
       self.doPick()
+      return True
     elif control in KEYS and self.song:
       # Check whether we can tap the currently required notes
       pos   = self.getSongPosition()
@@ -308,6 +484,7 @@ class GuitarSceneClient(GuitarScene, SceneClient):
          self.guitar.areNotesTappable(notes) and \
          self.guitar.controlsMatchNotes(self.controls, notes):
         self.doPick()
+      return True
     elif control == Player.CANCEL:
       self.pauseGame()
       self.engine.view.pushLayer(self.menu)
@@ -326,8 +503,18 @@ class GuitarSceneClient(GuitarScene, SceneClient):
             break
       else:
         self.enteredCode = []
+    return False
     
   def getExtraScoreForCurrentlyPlayedNotes(self):
+    """
+    Calculate bonus score for sustained notes.
+    
+    Awards extra points based on how long notes are held beyond
+    the minimum required duration.
+    
+    Returns:
+        int: Extra score points to award, or 0 if no bonus.
+    """
     if not self.song:
       return 0
  
@@ -338,7 +525,20 @@ class GuitarSceneClient(GuitarScene, SceneClient):
     return 0
 
   def keyReleased(self, key):
-    if self.controls.keyReleased(key) in KEYS and self.song:
+    """
+    Handle keyboard key release events during gameplay.
+    
+    Processes fret key releases for tapping mechanics and
+    determines when to end sustained note picks.
+    
+    Args:
+        key (int): The key code of the released key.
+        
+    Returns:
+        bool: True if the key was handled, False otherwise.
+    """
+    control = self.controls.keyReleased(key)
+    if control in KEYS and self.song:
       # Check whether we can tap the currently required notes
       pos   = self.getSongPosition()
       notes = self.guitar.getRequiredNotes(self.song, pos)
@@ -349,7 +549,22 @@ class GuitarSceneClient(GuitarScene, SceneClient):
       # Otherwise we end the pick if the notes have been playing long enough
       elif self.lastPickPos is not None and pos - self.lastPickPos > self.song.period / 2:
         self.endPick()
+      return True
+    elif control in (Player.ACTION1, Player.ACTION2, Player.CANCEL):
+      return True
+    return False
+    
   def render(self, visibility, topMost):
+    """
+    Render the 2D gameplay UI overlay.
+    
+    Draws the countdown, score, streak counter, multiplier effects,
+    hit/miss messages, streak indicator balls, and tutorial events.
+    
+    Args:
+        visibility (float): Current visibility level for fade effects (0.0-1.0).
+        topMost (bool): Whether this scene is the topmost visible layer.
+    """
     SceneClient.render(self, visibility, topMost)
     
     font    = self.engine.data.font

@@ -1,9 +1,10 @@
 #!/usr/bin/python
-# -*- coding: iso-8859-1 -*-                                        #
+# -*- coding: utf-8 -*-
 #####################################################################
 #                                                                   #
 # Frets on Fire                                                     #
-# Copyright (C) 2006 Sami Kyöstilä                                  #
+# Copyright (C) 2006 Sami KyÃ¶stilÃ¤                                  #
+# Python 3 Port (2026)                                              #
 #                                                                   #
 # This program is free software; you can redistribute it and/or     #
 # modify it under the terms of the GNU General Public License       #
@@ -21,7 +22,20 @@
 # MA  02110-1301, USA.                                              #
 #####################################################################
 
-"""Run all unit tests."""
+"""
+Test runner script for Frets on Fire.
+
+This module discovers and runs all unit tests in the project. It automatically
+finds all files matching the pattern '*Test.py' in the source tree and executes
+their test cases using Python's unittest framework.
+
+Usage:
+    python TestAll.py         Run all standard unit tests
+    python TestAll.py -i      Run interactive tests (tests ending in 'TestInteractive')
+
+The test runner loads the default configuration before executing tests and
+reports results with verbose output.
+"""
 
 import sys
 import os

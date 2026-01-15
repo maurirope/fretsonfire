@@ -53,9 +53,9 @@ def setNibbles(hiNibble, loNibble):
 def readBew(value):
     """
     Reads string as big endian word, (asserts len(value) in [1,2,4])
-    >>> readBew('aáâã')
+    >>> readBew('aï¿½ï¿½ï¿½')
     1642193635L
-    >>> readBew('aá')
+    >>> readBew('aï¿½')
     25057
     """
     try:
@@ -90,9 +90,9 @@ def readVar(value):
     might be a varlen and it will only use the relevant chars.
     use varLen(readVar(value)) to see how many bytes the integer value takes.
     asserts len(value) >= 0
-    >>> readVar('€@')
+    >>> readVar('ï¿½@')
     64
-    >>> readVar('áâãa')
+    >>> readVar('ï¿½ï¿½ï¿½a')
     205042145
     """
     sum = 0
@@ -139,9 +139,9 @@ def toBytes(value):
 
 
 def fromBytes(value):
-    "Turns a list of bytes into a string"
+    "Turns a list of bytes into a bytes object"
     if not value:
-        return ''
+        return b''
     return pack('%sB' % len(value), *value)
 
 
@@ -158,16 +158,16 @@ if __name__ == '__main__':
 #    print 'getHiLoHex', getNibbles(16)
 #    print 'setHiLoHex', setNibbles(1,0)
 #    
-#    print 'readBew', readBew('aáâã')
+#    print 'readBew', readBew('aï¿½ï¿½ï¿½')
 #    print 'writeBew', writeBew(1642193635, 4)
 #
 #    print 'varLen', varLen(1)
 #
-    print 'readVar', readVar('€@')
-    print 'writeVar', writeVar(8192)
+    print('readVar', readVar('ï¿½@'))
+    print('writeVar', writeVar(8192))
     
-    print 'readVar', readVar('áâãa')
-    print 'writeVar', writeVar(205058401)
+    print('readVar', readVar('ï¿½ï¿½ï¿½a'))
+    print('writeVar', writeVar(205058401))
 #    
 #    vartest = '\x82\xF7\x80\x00'
 #    print 'toBytes', toBytes(vartest)
@@ -182,29 +182,29 @@ if __name__ == '__main__':
 #    print writeVar(readVar(instr))
 
     s1 = 0x00000000
-    print '%08X -' % s1, '00',  writeVar(s1)
+    print('%08X -' % s1, '00',  writeVar(s1))
     s2 = 0x00000040
-    print '%08X -' % s2, '40',  writeVar(s2)
+    print('%08X -' % s2, '40',  writeVar(s2))
     s3 = 0x0000007F
-    print '%08X -' % s3, '7F',  writeVar(s3)
+    print('%08X -' % s3, '7F',  writeVar(s3))
     s4 = 0x00000080
-    print '%08X -' % s4, '81 00',  writeVar(s4)
+    print('%08X -' % s4, '81 00',  writeVar(s4))
     s5 = 0x00002000
-    print '%08X -' % s5, 'C0 00',  writeVar(s5)
+    print('%08X -' % s5, 'C0 00',  writeVar(s5))
     s6 = 0x00003FFF
-    print '%08X -' % s6, 'FF 7F',  writeVar(s6)
+    print('%08X -' % s6, 'FF 7F',  writeVar(s6))
     s7 = 0x00004000
-    print '%08X -' % s7, '81 80 00',  writeVar(s7)
+    print('%08X -' % s7, '81 80 00',  writeVar(s7))
     s8 = 0x00100000
-    print '%08X -' % s8, 'C0 80 00',  writeVar(s8)
+    print('%08X -' % s8, 'C0 80 00',  writeVar(s8))
     s9 = 0x001FFFFF
-    print '%08X -' % s9, 'FF FF 7F',  writeVar(s9)
+    print('%08X -' % s9, 'FF FF 7F',  writeVar(s9))
     s10 = 0x00200000
-    print '%08X -' % s10, '81 80 80 00', writeVar(s10)
+    print('%08X -' % s10, '81 80 80 00', writeVar(s10))
     s11 = 0x08000000
-    print '%08X -' % s11, 'C0 80 80 00', writeVar(s11)
+    print('%08X -' % s11, 'C0 80 80 00', writeVar(s11))
     s12 = 0x0FFFFFFF
-    print '%08X -' % s12, 'FF FF FF 7F', writeVar(s12)
+    print('%08X -' % s12, 'FF FF FF 7F', writeVar(s12))
               
               
               

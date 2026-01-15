@@ -1,8 +1,9 @@
 #####################################################################
-# -*- coding: iso-8859-1 -*-                                        #
+# -*- coding: utf-8 -*-                                             #
 #                                                                   #
 # Frets on Fire                                                     #
-# Copyright (C) 2006 Sami Kyostila                                  #
+# Copyright (C) 2006 Sami Kyöstilä                                  #
+# Python 3 Port (2026)                                              #
 #                                                                   #
 # This program is free software; you can redistribute it and/or     #
 # modify it under the terms of the GNU General Public License       #
@@ -20,6 +21,18 @@
 # MA  02110-1301, USA.                                              #
 #####################################################################
 
+"""
+Guitar instrument rendering and game logic module.
+
+This module provides the Guitar class which handles the visual rendering
+of the guitar fretboard, notes, and fret buttons, as well as the game logic
+for detecting correct note hits, tracking played notes, and managing BPM
+changes during gameplay.
+
+The guitar is rendered as a 3D fretboard with scrolling notes that the
+player must match by pressing the correct fret keys at the right time.
+"""
+
 import Player
 from Song import Note, Tempo
 from Mesh import Mesh
@@ -32,7 +45,36 @@ import numpy
 KEYS = [Player.KEY1, Player.KEY2, Player.KEY3, Player.KEY4, Player.KEY5]
 
 class Guitar:
+  """
+  Guitar instrument class handling fretboard rendering and note hit detection.
+  
+  This class manages the visual representation of a guitar fretboard in the game,
+  including the neck, strings, fret bars, notes, and fret key buttons. It also
+  handles the game logic for detecting when the player correctly hits notes.
+  
+  Attributes:
+      engine: The game engine instance.
+      boardWidth (float): Width of the guitar fretboard (default 4.0).
+      boardLength (float): Length of the visible fretboard (default 12.0).
+      beatsPerBoard (float): Number of beats visible on the board (default 5.0).
+      strings (int): Number of strings/frets on the guitar (default 5).
+      fretWeight (list): Visual weight for each fret key animation.
+      fretActivity (list): Activity level for each fret glow effect.
+      fretColors (list): RGB colors for each fret from the theme.
+      playedNotes (list): Currently playing notes as (time, event) tuples.
+      editorMode (bool): Whether the guitar is in editor mode.
+      currentBpm (float): Current beats per minute.
+      leftyMode (bool): Whether to mirror the fretboard for left-handed players.
+  """
   def __init__(self, engine, editorMode = False):
+    """
+    Initialize the Guitar instrument.
+    
+    Args:
+        engine: The game engine instance providing resource loading and rendering.
+        editorMode: If True, enables editor-specific features like string selection
+            and quarter-beat bar rendering. Defaults to False.
+    """
     self.engine         = engine
     self.boardWidth     = 4.0
     self.boardLength    = 12.0
@@ -65,15 +107,32 @@ class Guitar:
     engine.loadSvgDrawing(self, "noteDrawing", "note.png")
 
   def selectPreviousString(self):
+    """Select the previous string in editor mode, wrapping around if necessary."""
     self.selectedString = (self.selectedString - 1) % self.strings
 
   def selectString(self, string):
+    """
+    Select a specific string in editor mode.
+    
+    Args:
+        string: The string number to select (will wrap around).
+    """
     self.selectedString = string % self.strings
 
   def selectNextString(self):
+    """Select the next string in editor mode, wrapping around if necessary."""
     self.selectedString = (self.selectedString + 1) % self.strings
 
   def setBPM(self, bpm):
+    """
+    Set the beats per minute and update timing margins.
+    
+    This updates the early/late hit margins and note release margin
+    based on the new BPM value. Faster songs have tighter timing windows.
+    
+    Args:
+        bpm: The new beats per minute value.
+    """
     self.earlyMargin       = 60000.0 / bpm / 3.5
     self.lateMargin        = 60000.0 / bpm / 3.5
     self.noteReleaseMargin = 60000.0 / bpm / 2
@@ -81,6 +140,18 @@ class Guitar:
     self.baseBeat          = 0.0
       
   def renderNeck(self, visibility, song, pos):
+    """
+    Render the guitar neck/fretboard texture.
+    
+    Draws the scrolling neck texture that creates the illusion of notes
+    moving toward the player. The texture scrolls based on the current
+    song position and BPM.
+    
+    Args:
+        visibility: Opacity factor from 0.0 (invisible) to 1.0 (fully visible).
+        song: The current Song object, or None if no song is loaded.
+        pos: Current playback position in milliseconds.
+    """
     if not song:
       return
 
@@ -126,6 +197,15 @@ class Guitar:
     glDisable(GL_TEXTURE_2D)
     
   def renderTracks(self, visibility):
+    """
+    Render the string track lines on the fretboard.
+    
+    Draws vertical lines representing each guitar string. In editor mode,
+    also highlights the currently selected string.
+    
+    Args:
+        visibility: Opacity factor from 0.0 (invisible) to 1.0 (fully visible).
+    """
     w = self.boardWidth / self.strings
     v = 1.0 - visibility
 
@@ -165,6 +245,18 @@ class Guitar:
     glDisable(GL_TEXTURE_2D)
       
   def renderBars(self, visibility, song, pos):
+    """
+    Render the horizontal beat bar lines on the fretboard.
+    
+    Draws horizontal lines marking beat positions. Full beats are drawn
+    brighter than fractional beats. In editor mode, quarter-beat lines
+    are also shown.
+    
+    Args:
+        visibility: Opacity factor from 0.0 (invisible) to 1.0 (fully visible).
+        song: The current Song object, or None if no song is loaded.
+        pos: Current playback position in milliseconds.
+    """
     if not song:
       return
     
@@ -232,6 +324,20 @@ class Guitar:
     glDisable(GL_TEXTURE_2D)
 
   def renderNote(self, length, color, flat = False, tailOnly = False, isTappable = False):
+    """
+    Render a single note with its tail.
+    
+    Draws a note gem and its sustain tail. The note can be rendered in
+    different styles depending on whether it's been missed, is tappable,
+    or is currently being held.
+    
+    Args:
+        length: Length of the note tail in board units.
+        color: RGBA color tuple for the note.
+        flat: If True, render the note flattened (for missed notes).
+        tailOnly: If True, only render the tail without the note head.
+        isTappable: If True, render additional tappable indicator.
+    """
     if not self.noteMesh:
       return
 
@@ -276,6 +382,18 @@ class Guitar:
     glEnable(GL_BLEND)
 
   def renderNotes(self, visibility, song, pos):
+    """
+    Render all visible notes on the fretboard.
+    
+    Iterates through the song track and renders notes that are currently
+    visible on the fretboard. Also handles tempo change events and renders
+    waveform effects for currently held notes.
+    
+    Args:
+        visibility: Opacity factor from 0.0 (invisible) to 1.0 (fully visible).
+        song: The current Song object, or None if no song is loaded.
+        pos: Current playback position in milliseconds.
+    """
     if not song:
       return
 
@@ -405,6 +523,17 @@ class Guitar:
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
 
   def renderFrets(self, visibility, song, controls):
+    """
+    Render the fret key buttons at the bottom of the fretboard.
+    
+    Draws the 3D fret key meshes and glow effects when keys are pressed
+    or notes are being played. The glow intensity is based on fret activity.
+    
+    Args:
+        visibility: Opacity factor from 0.0 (invisible) to 1.0 (fully visible).
+        song: The current Song object (used for timing effects).
+        controls: Player controls object for checking key states.
+    """
     w = self.boardWidth / self.strings
     v = 1.0 - visibility
     
@@ -487,6 +616,18 @@ class Guitar:
     glDisable(GL_DEPTH_TEST)
 
   def render(self, visibility, song, pos, controls):
+    """
+    Render the complete guitar fretboard and all its components.
+    
+    This is the main rendering method that draws the neck, tracks, bars,
+    notes, and frets. Handles lefty mode by mirroring the display.
+    
+    Args:
+        visibility: Opacity factor from 0.0 (invisible) to 1.0 (fully visible).
+        song: The current Song object being played.
+        pos: Current playback position in milliseconds.
+        controls: Player controls object for checking key states.
+    """
     glEnable(GL_BLEND)
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
     glEnable(GL_COLOR_MATERIAL)
@@ -502,6 +643,19 @@ class Guitar:
       glScalef(-1, 1, 1)
 
   def getMissedNotes(self, song, pos):
+    """
+    Get notes that the player has missed.
+    
+    Returns notes that have passed beyond the late margin window
+    without being played.
+    
+    Args:
+        song: The current Song object.
+        pos: Current playback position in milliseconds.
+    
+    Returns:
+        list: List of (time, event) tuples for missed notes, or None if no song.
+    """
     if not song:
       return
 
@@ -515,6 +669,19 @@ class Guitar:
     return notes
     
   def getRequiredNotes(self, song, pos):
+    """
+    Get notes that currently require player input.
+    
+    Returns notes within the hit window that haven't been played yet.
+    For chords, returns all notes that share the same timestamp.
+    
+    Args:
+        song: The current Song object.
+        pos: Current playback position in milliseconds.
+    
+    Returns:
+        list: List of (time, event) tuples for required notes.
+    """
     track = song.track
     notes = [(time, event) for time, event in track.getEvents(pos - self.lateMargin, pos + self.earlyMargin) if isinstance(event, Note)]
     notes = [(time, event) for time, event in notes if not event.played]
@@ -525,6 +692,19 @@ class Guitar:
     return notes
 
   def controlsMatchNotes(self, controls, notes):
+    """
+    Check if the player's current key presses match the required notes.
+    
+    Validates that the player is holding the correct fret keys for the
+    given notes. Lower frets can be held down without causing a mismatch.
+    
+    Args:
+        controls: Player controls object for checking key states.
+        notes: List of (time, note) tuples to match against.
+    
+    Returns:
+        bool: True if the controls match the required notes, False otherwise.
+    """
     result = True
     
     # no notes?
@@ -538,7 +718,7 @@ class Guitar:
         chords[time] = []
       chords[time].append((time, note))
 
-    for notes in chords.values():
+    for notes in list(chords.values()):
       # matching keys?
       requiredKeys = [note.number for time, note in notes]
 
@@ -554,6 +734,16 @@ class Guitar:
     return result
 
   def areNotesTappable(self, notes):
+    """
+    Check if all notes in a group are tappable.
+    
+    Args:
+        notes: List of (time, note) tuples to check.
+    
+    Returns:
+        bool: True if all notes are tappable, False if any are not,
+            or None if notes is empty.
+    """
     if not notes:
       return
     for time, note in notes:
@@ -562,6 +752,20 @@ class Guitar:
     return True
   
   def startPick(self, song, pos, controls):
+    """
+    Attempt to pick/strum notes at the current position.
+    
+    Checks if the player's current key presses match the required notes
+    and, if so, marks those notes as played.
+    
+    Args:
+        song: The current Song object.
+        pos: Current playback position in milliseconds.
+        controls: Player controls object for checking key states.
+    
+    Returns:
+        bool: True if notes were successfully picked, False otherwise.
+    """
     if not song:
       return False
     
@@ -600,6 +804,18 @@ class Guitar:
     return False
 
   def endPick(self, pos):
+    """
+    End the current note pick and check for premature release.
+    
+    Checks if the player released the strum while sustain notes were
+    still active, which would result in a broken combo.
+    
+    Args:
+        pos: Current playback position in milliseconds.
+    
+    Returns:
+        bool: True if notes were held long enough, False if released early.
+    """
     for time, note in self.playedNotes:
       if time + note.length > pos + self.noteReleaseMargin:
         self.playedNotes = []
@@ -609,6 +825,17 @@ class Guitar:
     return True
     
   def getPickLength(self, pos):
+    """
+    Get the duration the current notes have been held.
+    
+    Args:
+        pos: Current playback position in milliseconds.
+    
+    Returns:
+        float: Duration in milliseconds that notes have been held,
+            limited by the shortest note length. Returns 0.0 if no
+            notes are being played.
+    """
     if not self.playedNotes:
       return 0.0
     
@@ -619,6 +846,21 @@ class Guitar:
     return pickLength
 
   def run(self, ticks, pos, controls):
+    """
+    Update the guitar state for the current frame.
+    
+    Updates fret animations, checks for expired notes, and smoothly
+    interpolates BPM changes.
+    
+    Args:
+        ticks: Time elapsed since last update in milliseconds.
+        pos: Current playback position in milliseconds.
+        controls: Player controls object for checking key states.
+    
+    Returns:
+        bool: True if all played notes are still active, False if any
+            note has expired (combo broken).
+    """
     self.time += ticks
     
     # update frets

@@ -6,20 +6,24 @@
                              /   / / \ /_
 
              >>------------------------------------>>
-              |   http://www.unrealvoodoo.org      |
+              |   https://github.com/skyostil/fretsonfire      |
              >>------------------------------------>>
               |                                    |
               | 1. Introduction                    |
               |                                    |
               | 2. Requirements                    |
               |                                    |
-              | 3. Playing the game                |
+              | 3. Installation                    |
               |                                    |
-              | 4. Editing and Importing songs     |
+              | 4. Playing the game                |
               |                                    |
-              | 5. Importing Guitar Hero(tm) songs |
+              | 5. Editing and Importing songs     |
               |                                    |
-              | 6. Troubleshooting                 |
+              | 6. Importing Guitar Hero(tm) songs |
+              |                                    |
+              | 7. Development                     |
+              |                                    |
+              | 8. Troubleshooting                 |
               |                                    |
              >>------------------------------------>>
 
@@ -35,27 +39,48 @@
   |  2. Requirements                                                   |
  >>-------------------------------------------------------------------->>
 
-  Windows:
+  Frets on Fire requires Python 3.8 or later and the following libraries:
 
-    >> 128 MB of RAM
-    >> a fairly fast OpenGL graphics card (shader support not necessary,
-       antialiasing support recommended)
-    >> Direct X compatible sound card
+    - Python 3.8+
+    - Pygame
+    - PyOpenGL
+    - Pillow (Python Imaging Library)
+    - NumPy
 
-  Linux:
+  Optional:
+    - vorbis-tools (for importing Guitar Hero songs)
 
-    >> 128 MB of RAM
-    >> a fairly fast OpenGL graphics card (shader support not necessary,
-       antialiasing support recommended)
-    >> SDL compatible sound card
+  System Requirements:
 
- Mac OS X:
+  Windows / Linux / macOS:
 
-    >> Mac OS X 10.5 or later
-    >> OpenGL accelerated video card
+    - 512 MB of RAM (recommended 1 GB)
+    - OpenGL 2.0+ compatible graphics card
+    - SDL compatible sound card
+    - 500 MB free disk space
+
+  Note: The game is licensed under GNU General Public License v2.0.
 
  >>-------------------------------------------------------------------->>
-  |  3. Playing the game                                               |
+  |  3. Installation                                                    |
+ >>-------------------------------------------------------------------->>
+
+  1. Ensure Python 3.8+ is installed on your system.
+
+  2. Install the required Python packages:
+
+     pip install pygame pyopengl pillow numpy
+
+  3. Clone or download the repository from GitHub.
+
+  4. Navigate to the src directory and run:
+
+     python FretsOnFire.py
+
+  For development, see the Development section below.
+
+ >>-------------------------------------------------------------------->>
+  |  4. Playing the game                                               |
  >>-------------------------------------------------------------------->>
 
   First of all, these are the keys you'll need to navigate the menus:
@@ -85,7 +110,7 @@
   you twice the points of normal notes.
 
  >>-------------------------------------------------------------------->>
-  |  4. Editing and Importing Songs                                    |
+  |  5. Editing and Importing Songs                                    |
  >>-------------------------------------------------------------------->>
  
   With the included song editor you can import your own songs into the
@@ -118,7 +143,7 @@
   Remember that you shouldn't place notes on top of each other.
 
  >>-------------------------------------------------------------------->>
-  |  5. Importing Guitar Hero(tm) songs                                |
+  |  6. Importing Guitar Hero(tm) songs                                |
  >>-------------------------------------------------------------------->>
 
   The game has a built-in importer for the songs in Guitar Hero(tm) by
@@ -152,7 +177,20 @@
   mostly pick up where it left off when you run it again.
 
  >>-------------------------------------------------------------------->>
-  |  6. Troubleshooting                                                |
+  |  7. Development                                                    |
+ >>-------------------------------------------------------------------->>
+
+  Frets on Fire is open source software. Contributions are welcome!
+
+  - Source code: https://github.com/skyostil/fretsonfire
+  - Report issues: GitHub Issues
+  - Python 3.8+ required for development
+  - Use virtualenv for isolated development environment
+  - Run tests: python -m pytest (if available)
+  - Build documentation: See doc/ directory
+
+ >>-------------------------------------------------------------------->>
+  |  8. Troubleshooting                                                |
  >>-------------------------------------------------------------------->>
 
   Q: Some chords don't work.

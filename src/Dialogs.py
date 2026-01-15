@@ -1,8 +1,9 @@
 #####################################################################
-# -*- coding: iso-8859-1 -*-                                        #
+# -*- coding: utf-8 -*-                                             #
 #                                                                   #
 # Frets on Fire                                                     #
-# Copyright (C) 2006 Sami Kyöstilä                                  #
+# Copyright (C) 2006 Sami KyÃ¶stilÃ¤                                  #
+# Python 3 Port (2026)                                              #
 #                                                                   #
 # This program is free software; you can redistribute it and/or     #
 # modify it under the terms of the GNU General Public License       #
@@ -20,7 +21,25 @@
 # MA  02110-1301, USA.                                              #
 #####################################################################
 
-"""A bunch of dialog functions for interacting with the user."""
+"""
+Dialogs module for Frets on Fire.
+
+This module provides a comprehensive dialog system for user interaction in the game.
+It includes various UI layers and helper functions for displaying modal dialogs,
+gathering user input, browsing files and songs, and showing loading/message screens.
+
+Key components:
+- Text input dialogs (GetText)
+- Key capture dialogs (GetKey)
+- Loading and message screens (LoadingScreen, MessageScreen)
+- File and song browsing (FileChooser, SongChooser)
+- Item selection menus (ItemChooser)
+- Utility functions for BPM estimation and key testing
+
+All dialog classes inherit from Layer and KeyListener to integrate with the game's
+view system and input handling. Helper functions provide a simple API for showing
+dialogs and blocking until user interaction is complete.
+"""
 
 import pygame
 from OpenGL.GL import *
@@ -100,7 +119,18 @@ def fadeScreen(v):
   
 
 class GetText(Layer, KeyListener):
-  """Text input layer."""
+  """
+  Text input dialog layer.
+  
+  Displays a prompt and allows the user to type in text using the keyboard.
+  The dialog can be accepted with Enter/KEY1 or canceled with Escape/KEY2.
+  When canceled, the text property is set to None.
+  
+  Attributes:
+      text (str): The current text entered by the user, or None if canceled.
+      prompt (str): The prompt message displayed to the user.
+      accepted (bool): Whether the dialog has been dismissed.
+  """
   def __init__(self, engine, prompt = "", text = ""):
     self.text = text
     self.prompt = prompt
@@ -129,7 +159,7 @@ class GetText(Layer, KeyListener):
     elif key == pygame.K_BACKSPACE and not self.accepted:
       self.text = self.text[:-1]
     elif unicode and ord(unicode) > 31 and not self.accepted:
-      self.text += str(unicode)
+      self.text += unicode
     return True
     
   def run(self, ticks):
@@ -162,7 +192,18 @@ class GetText(Layer, KeyListener):
       self.engine.view.resetProjection()
 
 class GetKey(Layer, KeyListener):
-  """Key choosing layer."""
+  """
+  Key selection dialog layer.
+  
+  Displays a prompt and waits for the user to press any key.
+  The pressed key is stored and the dialog closes automatically.
+  Can be canceled with Escape/KEY2, which sets the key to None.
+  
+  Attributes:
+      key (int): The pygame key code of the pressed key, or None if canceled.
+      prompt (str): The prompt message displayed to the user.
+      accepted (bool): Whether the dialog has been dismissed.
+  """
   def __init__(self, engine, prompt = "", key = None):
     self.key = key
     self.prompt = prompt
@@ -176,7 +217,7 @@ class GetKey(Layer, KeyListener):
   def hidden(self):
     self.engine.input.removeKeyListener(self)
     
-  def keyPressed(self, key, unicode):
+  def keyPressed(self, key, str):
     c = self.engine.input.controls.getMapping(key)
     if c in [Player.CANCEL, Player.KEY2] and not self.accepted:
       self.key = None
@@ -213,7 +254,19 @@ class GetKey(Layer, KeyListener):
       self.engine.view.resetProjection()
 
 class LoadingScreen(Layer, KeyListener):
-  """Loading screen layer."""
+  """
+  Loading screen dialog layer.
+  
+  Displays a loading message with an animated background while waiting
+  for a condition to become true. Useful for showing progress during
+  resource loading or background operations.
+  
+  Attributes:
+      text (str): The loading message displayed to the user.
+      condition (callable): Function that returns True when loading is complete.
+      ready (bool): Whether the condition has been met.
+      allowCancel (bool): Whether the user can cancel the loading with Escape.
+  """
   def __init__(self, engine, condition, text, allowCancel = False):
     self.engine       = engine
     self.text         = text
@@ -225,7 +278,7 @@ class LoadingScreen(Layer, KeyListener):
   def shown(self):
     self.engine.input.addKeyListener(self, priority = True)
 
-  def keyPressed(self, key, unicode):
+  def keyPressed(self, key, str):
     c = self.engine.input.controls.getMapping(key)
     if self.allowCancel and c == Player.CANCEL:
       self.engine.view.popLayer(self)
@@ -274,7 +327,16 @@ class LoadingScreen(Layer, KeyListener):
       self.engine.view.resetProjection()
 
 class MessageScreen(Layer, KeyListener):
-  """Message screen layer."""
+  """
+  Message display dialog layer.
+  
+  Shows a message to the user with an OK prompt. The dialog is dismissed
+  when the user presses any action key (KEY1, KEY2, CANCEL, or Enter).
+  
+  Attributes:
+      text (str): The message text displayed to the user.
+      prompt (str): The dismissal prompt (default: "<OK>").
+  """
   def __init__(self, engine, text, prompt = _("<OK>")):
     self.engine = engine
     self.text = text
@@ -284,7 +346,7 @@ class MessageScreen(Layer, KeyListener):
   def shown(self):
     self.engine.input.addKeyListener(self, priority = True)
 
-  def keyPressed(self, key, unicode):
+  def keyPressed(self, key, str):
     c = self.engine.input.controls.getMapping(key)
     if c in [Player.KEY1, Player.KEY2, Player.CANCEL] or key == pygame.K_RETURN:
       self.engine.view.popLayer(self)
@@ -322,7 +384,27 @@ class MessageScreen(Layer, KeyListener):
       self.engine.view.resetProjection()
       
 class SongChooser(Layer, KeyListener):
-  """Song choosing layer."""
+  """
+  Song selection dialog layer.
+  
+  Provides a visual browser for selecting songs from the game's song libraries.
+  Displays songs as 3D cassette tapes (optional) or as a compact list view.
+  Supports keyboard navigation, searching/filtering, song preview playback,
+  and library browsing.
+  
+  Features:
+      - 3D cassette visualization or compact list mode (toggle with Tab)
+      - Real-time search/filter as you type
+      - Song preview with configurable auto-preview
+      - Artist/name sorting (toggle with Home key)
+      - Library navigation for organized song collections
+  
+  Attributes:
+      prompt (str): The prompt message displayed to the user.
+      selectedItem: The currently selected song or library.
+      library (str): The current library path being browsed.
+      searchText (str): Current search/filter text.
+  """
   def __init__(self, engine, prompt = "", selectedSong = None, selectedLibrary = None):
     self.prompt         = prompt
     self.engine         = engine
@@ -430,7 +512,7 @@ class SongChooser(Layer, KeyListener):
     self.songCountdown = 1024
     self.loadItemLabel(self.selectedIndex)
     
-  def keyPressed(self, key, unicode):
+  def keyPressed(self, key, str):
     if not self.items or self.accepted:
       return
 
@@ -510,8 +592,8 @@ class SongChooser(Layer, KeyListener):
         self.items.sort(key=lambda l: (l.name.lower()))
     elif key == pygame.K_TAB:
       self.cassetteShow = not self.cassetteShow
-    elif unicode and ord(unicode) > 31 and not self.accepted:
-      self.searchText += str(unicode)
+    elif str and ord(str) > 31 and not self.accepted:
+      self.searchText += str
       self.doSearch()
     return True
 
@@ -858,10 +940,10 @@ class SongChooser(Layer, KeyListener):
             else:
               score, stars, name = "---", 0, "---"
             Theme.setBaseColor(1 - v)
-            font.render(unicode(d),     (x, y),           scale = scale)
-            font.render(unicode(Data.STAR2 * stars + Data.STAR1 * (5 - stars)), (x, y + h), scale = scale * .9)
+            font.render(str(d),     (x, y),           scale = scale)
+            font.render(str(Data.STAR2 * stars + Data.STAR1 * (5 - stars)), (x, y + h), scale = scale * .9)
             Theme.setSelectedColor(1 - v)
-            font.render(unicode(score), (x + .15, y),     scale = scale)
+            font.render(str(score), (x + .15, y),     scale = scale)
             font.render(name,       (x + .15, y + h),     scale = scale)
             y += 2 * h + f / 4.0
         elif isinstance(item, Song.LibraryInfo):
@@ -875,7 +957,19 @@ class SongChooser(Layer, KeyListener):
       self.engine.view.resetProjection()
 
 class FileChooser(BackgroundLayer, KeyListener):
-  """File choosing layer."""
+  """
+  File selection dialog layer.
+  
+  Provides a file browser for selecting files from the filesystem.
+  Displays files and directories matching the specified glob masks,
+  allowing navigation through the directory hierarchy.
+  
+  Attributes:
+      masks (list): List of glob patterns for filtering files (e.g., ["*.mid", "*.ogg"]).
+      path (str): Current directory path being browsed.
+      prompt (str): The prompt message displayed to the user.
+      selectedFile (str): The absolute path of the selected file, or None if canceled.
+  """
   def __init__(self, engine, masks, path, prompt = ""):
     self.masks          = masks
     self.path           = path
@@ -976,7 +1070,18 @@ class FileChooser(BackgroundLayer, KeyListener):
       self.engine.view.resetProjection()
 
 class ItemChooser(BackgroundLayer, KeyListener):
-  """Item menu layer."""
+  """
+  Generic item selection dialog layer.
+  
+  Displays a menu of items for the user to choose from. Uses the standard
+  Menu component for rendering and navigation. Useful for presenting
+  lists of options, settings values, or other choices.
+  
+  Attributes:
+      items (list): List of item strings to choose from.
+      prompt (str): The prompt message displayed to the user.
+      selectedItem: The selected item string, or None if canceled.
+  """
   def __init__(self, engine, items, selected = None, prompt = ""):
     self.prompt         = prompt
     self.engine         = engine
@@ -1043,7 +1148,25 @@ class ItemChooser(BackgroundLayer, KeyListener):
       
       
 class BpmEstimator(Layer, KeyListener):
-  """Beats per minute value estimation layer."""
+  """
+  BPM (Beats Per Minute) estimation dialog layer.
+  
+  Allows the user to tap along with a song to estimate its tempo.
+  The user presses Space in rhythm with the beat, and the dialog
+  calculates the average BPM from the tap intervals.
+  
+  Usage:
+      - Press Space to tap beats in time with the music
+      - After ~12 taps, the estimated BPM is displayed
+      - Press Enter/KEY1 to accept the estimated value
+      - Press Escape/KEY2 to cancel
+  
+  Attributes:
+      song: The Song instance being analyzed.
+      prompt (str): The prompt message displayed to the user.
+      bpm (float): The estimated beats per minute, or None if not yet calculated.
+      beats (list): List of timestamps for each tap.
+  """
   def __init__(self, engine, song, prompt = ""):
     self.prompt         = prompt
     self.engine         = engine
@@ -1061,7 +1184,7 @@ class BpmEstimator(Layer, KeyListener):
     self.engine.input.removeKeyListener(self)
     self.song.fadeout(1000)
     
-  def keyPressed(self, key, unicode):
+  def keyPressed(self, key, str):
     if self.accepted:
       return True
       
@@ -1107,7 +1230,24 @@ class BpmEstimator(Layer, KeyListener):
       self.engine.view.resetProjection()
       
 class KeyTester(Layer, KeyListener):
-  """Keyboard configuration testing layer."""
+  """
+  Keyboard configuration testing dialog layer.
+  
+  Provides a visual interface for testing the current keyboard configuration.
+  Displays the five fret buttons and pick action, highlighting them when
+  the corresponding keys are pressed. Useful for verifying key bindings
+  after configuration.
+  
+  Controls:
+      - Press configured fret keys to see them highlight
+      - Press configured pick/strum keys to test picking
+      - Press Escape to exit the tester
+  
+  Attributes:
+      prompt (str): The prompt message displayed to the user.
+      controls (Player.Controls): Controller state for tracking key presses.
+      fretColors (list): Colors for each of the five fret buttons.
+  """
   def __init__(self, engine, prompt = ""):
     self.prompt         = prompt
     self.engine         = engine
@@ -1122,7 +1262,7 @@ class KeyTester(Layer, KeyListener):
   def hidden(self):
     self.engine.input.removeKeyListener(self)
     
-  def keyPressed(self, key, unicode):
+  def keyPressed(self, key, str):
     if self.accepted:
       return True
 
@@ -1172,7 +1312,16 @@ class KeyTester(Layer, KeyListener):
       self.engine.view.resetProjection()
       
 def _runDialog(engine, dialog):
-  """Run a dialog in a sub event loop until it is finished."""
+  """
+  Run a dialog in a sub event loop until it is finished.
+  
+  This internal helper function pushes a dialog layer onto the view stack
+  and runs the engine's main loop until the dialog removes itself from
+  the layer stack. This provides a blocking API for modal dialogs.
+  
+  @param engine: The game engine instance.
+  @param dialog: The dialog layer to display and run.
+  """
   if not engine.running:
     return
   

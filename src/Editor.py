@@ -1,8 +1,9 @@
 #####################################################################
-# -*- coding: iso-8859-1 -*-                                        #
+# -*- coding: utf-8 -*-                                             #
 #                                                                   #
 # Frets on Fire                                                     #
-# Copyright (C) 2006 Sami Kyöstilä                                  #
+# Copyright (C) 2006 Sami KyÃ¶stilÃ¤                                  #
+# Python 3 Port (2026)                                              #
 #                                                                   #
 # This program is free software; you can redistribute it and/or     #
 # modify it under the terms of the GNU General Public License       #
@@ -19,6 +20,22 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,        #
 # MA  02110-1301, USA.                                              #
 #####################################################################
+
+"""
+Song Editor module for Frets on Fire.
+
+This module provides the in-game song editor functionality, allowing users
+to create and edit note charts for songs. It includes:
+
+- Visual note placement and editing on a guitar fretboard
+- Song metadata editing (name, artist, BPM, A/V delay)
+- Support for different difficulty levels
+- Song importing from OGG audio files
+- Integration with Guitar Hero ARK file format for importing
+
+The editor uses a visual timeline interface where notes can be placed,
+modified, and deleted in real-time while the song plays.
+"""
 
 import pygame
 from OpenGL.GL import *
@@ -42,7 +59,34 @@ import shutil, os, struct, wave, tempfile
 from struct import unpack
 
 class Editor(Layer, KeyListener):
-  """Song editor layer."""
+  """
+  Main song editor layer for creating and editing note charts.
+  
+  This class provides the core editing functionality for Frets on Fire songs.
+  It allows users to visually place, modify, and delete notes on a guitar
+  fretboard timeline. The editor supports playback, scrolling, and various
+  song metadata modifications.
+  
+  Attributes:
+      engine: The main game engine instance.
+      time: Current animation time for background effects.
+      guitar: Guitar instance for rendering the fretboard in editor mode.
+      controls: Player control state manager.
+      camera: Camera instance for 3D perspective rendering.
+      pos: Current playback/cursor position in milliseconds.
+      snapPos: Quantized cursor position snapped to beat grid.
+      scrollPos: Smooth scrolling position for visual display.
+      scrollSpeed: Current scroll velocity when using arrow keys.
+      newNotes: List of notes currently being placed.
+      newNotePos: Starting position for notes being placed.
+      song: Currently loaded Song instance being edited.
+      modified: Flag indicating unsaved changes exist.
+      songName: Name of the song being edited.
+      libraryName: Name of the song library containing the song.
+      heldFrets: Set of fret indices currently held down.
+      menu: Editor menu instance.
+      background: Background SVG drawing.
+  """
   def __init__(self, engine, songName = None, libraryName = DEFAULT_LIBRARY):
     self.engine      = engine
     self.time        = 0.0
@@ -77,6 +121,16 @@ class Editor(Layer, KeyListener):
     self.menu = Menu(self.engine, mainMenu)
 
   def save(self):
+    """
+    Save the current song to disk.
+    
+    Saves all modifications to the song file including note data and
+    metadata. Shows a loading screen during the save operation and
+    displays a confirmation message upon completion.
+    
+    Returns:
+        None: Shows message if no changes to save.
+    """
     if not self.modified:
       Dialogs.showMessage(self.engine, _("There are no changes to save."))
       return
@@ -90,6 +144,7 @@ class Editor(Layer, KeyListener):
     Dialogs.showMessage(self.engine, _("'%s' saved.") % self.song.info.name)
 
   def help(self):
+    """Display the editing help dialog with keyboard controls."""
     Dialogs.showMessage(self.engine, _("Editing keys: ") +
                                      _("Arrows - Move cursor, ") +
                                      _("Space - Play/pause song, ") +
@@ -99,19 +154,27 @@ class Editor(Layer, KeyListener):
 
 
   def setSongName(self):
+    """Prompt user to enter and set a new song name."""
     name = Dialogs.getText(self.engine, _("Enter Song Name"), self.song.info.name)
     if name:
       self.song.info.name = name
       self.modified = True
 
   def setArtistName(self):
+    """Prompt user to enter and set a new artist name."""
     name = Dialogs.getText(self.engine, _("Enter Artist Name"), self.song.info.artist)
     if name:
       self.song.info.artist = name
       self.modified = True
 
   def setAVDelay(self):
-    delay = Dialogs.getText(self.engine, _("Enter A/V delay in milliseconds"), unicode(self.song.info.delay))
+    """
+    Prompt user to set the audio/video synchronization delay.
+    
+    The delay value is used to compensate for timing differences between
+    the audio track and note chart, specified in milliseconds.
+    """
+    delay = Dialogs.getText(self.engine, _("Enter A/V delay in milliseconds"), str(self.song.info.delay))
     if delay:
       try:
         self.song.info.delay = int(delay)
@@ -120,7 +183,8 @@ class Editor(Layer, KeyListener):
         Dialogs.showMessage(self.engine, _("That isn't a number."))
 
   def setBpm(self):
-    bpm = Dialogs.getText(self.engine, _("Enter Beats per Minute Value"), unicode(self.song.bpm))
+    """Prompt user to manually enter the song's beats per minute value."""
+    bpm = Dialogs.getText(self.engine, _("Enter Beats per Minute Value"), str(self.song.bpm))
     if bpm:
       try:
         self.song.setBpm(float(bpm))
@@ -129,12 +193,20 @@ class Editor(Layer, KeyListener):
         Dialogs.showMessage(self.engine, _("That isn't a number."))
 
   def estimateBpm(self):
+    """
+    Launch interactive BPM estimation by tapping to the beat.
+    
+    Allows the user to tap along with the song to automatically
+    calculate the tempo. User taps Space bar to the beat, then
+    presses Enter to confirm or Escape to cancel.
+    """
     bpm = Dialogs.estimateBpm(self.engine, self.song, _("Tap the Space bar to the beat of the song. Press Enter when done or Escape to cancel."))
     if bpm is not None:
       self.song.setBpm(bpm)
       self.modified = True
 
   def setCassetteColor(self):
+    """Prompt user to set the cassette tape color in HTML hex format (#RRGGBB)."""
     if self.song.info.cassetteColor:
       color = Theme.colorToHex(self.song.info.cassetteColor)
     else:
@@ -148,6 +220,7 @@ class Editor(Layer, KeyListener):
         Dialogs.showMessage(self.engine, _("That isn't a color."))
 
   def setCassetteLabel(self):
+    """Prompt user to choose a PNG image file for the cassette label (256x128)."""
     label = Dialogs.chooseFile(self.engine, masks = ["*.png"], prompt = _("Choose a 256x128 PNG format label image."))
     if label:
       songPath = self.engine.resource.fileName("songs", self.songName, writable = True)
@@ -155,6 +228,12 @@ class Editor(Layer, KeyListener):
       self.modified = True
 
   def shown(self):
+    """
+    Handle layer being shown on screen.
+    
+    Registers keyboard listener, prompts for song selection if none
+    specified, and loads the selected song with a loading screen.
+    """
     self.engine.input.addKeyListener(self)
 
     if not self.songName:
@@ -168,12 +247,20 @@ class Editor(Layer, KeyListener):
     Dialogs.showLoadingScreen(self.engine, lambda: self.song, text = _("Loading song..."))
 
   def hidden(self):
+    """Handle layer being hidden, stopping song and returning to main menu."""
     if self.song:
       self.song.stop()
     self.engine.input.removeKeyListener(self)
     self.engine.view.pushLayer(MainMenu.MainMenu(self.engine))
 
   def controlPressed(self, control):
+    """
+    Handle player control input for editing.
+    
+    Args:
+        control: The Player control constant that was pressed
+            (e.g., UP, DOWN, LEFT, RIGHT, ACTION1, ACTION2, or fret KEYS).
+    """
     if not self.song:
       return
 
@@ -197,6 +284,12 @@ class Editor(Layer, KeyListener):
       self.modified   = True
 
   def controlReleased(self, control):
+    """
+    Handle player control release for completing note placement.
+    
+    Args:
+        control: The Player control constant that was released.
+    """
     if not self.song:
       return
 
@@ -208,20 +301,31 @@ class Editor(Layer, KeyListener):
         self.newNotes = []
 
   def quit(self):
+    """Exit the editor and return to the main menu."""
     self.engine.view.popLayer(self)
     self.engine.view.popLayer(self.menu)
 
-  def keyPressed(self, key, unicode):
+  def keyPressed(self, key, str):
+    """
+    Handle raw keyboard input for editor functions.
+    
+    Args:
+        key: pygame key constant for the pressed key.
+        str: String representation of the key.
+    
+    Returns:
+        bool: True to indicate the key event was handled.
+    """
     c = self.engine.input.controls.getMapping(key)
     if c == Player.CANCEL:
       self.engine.view.pushLayer(self.menu)
     elif key == pygame.K_PAGEDOWN and self.song:
       d = self.song.difficulty
-      v = difficulties.values()
+      v = list(difficulties.values())
       self.song.difficulty = v[(v.index(d) + 1) % len(v)]
     elif key == pygame.K_PAGEUP and self.song:
       d = self.song.difficulty
-      v = difficulties.values()
+      v = list(difficulties.values())
       self.song.difficulty = v[(v.index(d) - 1) % len(v)]
     elif key == pygame.K_DELETE and self.song:
       # gather up all events that intersect the cursor and delete the ones on the selected string
@@ -243,12 +347,30 @@ class Editor(Layer, KeyListener):
     return True
 
   def keyReleased(self, key):
+    """
+    Handle raw keyboard release events.
+    
+    Args:
+        key: pygame key constant for the released key.
+    
+    Returns:
+        bool: True to indicate the key event was handled.
+    """
     c = self.controls.keyReleased(key)
     if c:
       self.controlReleased(c)
     return True
 
   def run(self, ticks):
+    """
+    Update editor state for each game tick.
+    
+    Handles scrolling, playback position updates, note placement,
+    and position snapping to the beat grid.
+    
+    Args:
+        ticks: Number of milliseconds since last update.
+    """
     self.time += ticks / 50.0
 
     if not self.song:
@@ -296,6 +418,16 @@ class Editor(Layer, KeyListener):
       self.scrollPos = (self.scrollPos + self.snapPos) / 2.0
 
   def render(self, visibility, topMost):
+    """
+    Render the editor view.
+    
+    Draws the animated background, guitar fretboard with notes,
+    and status information (position, play state, difficulty).
+    
+    Args:
+        visibility: Float 0.0-1.0 indicating layer visibility for transitions.
+        topMost: Boolean indicating if this is the topmost layer.
+    """
     if not self.song:
       return
 
@@ -338,7 +470,7 @@ class Editor(Layer, KeyListener):
       t = "%d.%02d'%03d" % (self.pos / 60000, (self.pos % 60000) / 1000, self.pos % 1000)
       font.render(t, (.05, .05 - h / 2))
       font.render(status, (.05, .05 + h / 2))
-      font.render(unicode(self.song.difficulty), (.05, .05 + 3 * h / 2))
+      font.render(str(self.song.difficulty), (.05, .05 + 3 * h / 2))
 
       Theme.setBaseColor()
       text = self.song.info.name + (self.modified and "*" or "")
@@ -688,7 +820,7 @@ class GHImporter(Layer):
       vgsMap  = {}
       library = DEFAULT_LIBRARY
       for line in open(self.engine.resource.fileName("ghmidimap.txt")):
-        fields = map(lambda s: s.strip(), line.strip().split(";"))
+        fields = [s.strip() for s in line.strip().split(";")]
         if fields[0] == "$library":
           library = os.path.join(DEFAULT_LIBRARY, fields[1])
         else:
@@ -700,7 +832,7 @@ class GHImporter(Layer):
       songs    = []
 
       # Filter out the songs that aren't in this archive
-      for songName, data in songMap.items():
+      for songName, data in list(songMap.items()):
         library, fullName, artist = data
         songPath = self.engine.resource.fileName(library, songName, writable = True)
 
@@ -717,10 +849,10 @@ class GHImporter(Layer):
           del songMap[songName]
           continue
 
-      for songName, data in songMap.items():
+      for songName, data in list(songMap.items()):
         library, fullName, artist = data
         songPath = self.engine.resource.fileName(library, songName, writable = True)
-        print songPath
+        print(songPath)
 
         Log.notice("Extracting song '%s'" % songName)
         self.statusText = _("Extracting %s by %s. %d of %d songs imported. Yeah, this is going to take forever.") % (fullName, artist, len(songs), len(songMap))

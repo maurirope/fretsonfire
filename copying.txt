@@ -1,6 +1,7 @@
-All source code and data files are copyright 2006-2009 by Sami Kyöstilä,
-Tommi Inkilä, Joonas Kerttula, except:
-
+All source code and data files are copyright 2006-2009 by Sami Kyï¿½stilï¿½,
+Tommi Inkilï¿½, Joonas Kerttula, except:
+  * Python 3 port and modernization (Version 1.4.0) copyright 2026 by 
+    Mauricio Rodriguez Perdomo.  
   * Font data/title.ttf copyright by Astigmatic One Eye
     (see http://www.astigmatic.com/freeware.html)
   * Font data/default.ttf copyright by 1001 Free Fonts.

@@ -1,8 +1,9 @@
 #####################################################################
-# -*- coding: iso-8859-1 -*-                                        #
+# -*- coding: utf-8 -*-                                             #
 #                                                                   #
 # Frets on Fire                                                     #
-# Copyright (C) 2006 Sami Kyöstilä                                  #
+# Copyright (C) 2006 Sami KyÃ¶stilÃ¤                                  #
+# Python 3 Port (2026)                                              #
 #                                                                   #
 # This program is free software; you can redistribute it and/or     #
 # modify it under the terms of the GNU General Public License       #
@@ -20,7 +21,20 @@
 # MA  02110-1301, USA.                                              #
 #####################################################################
 
-"""Mock amanith implementation that does next to nothing."""
+"""
+Stub implementation for the removed Amanith vector graphics library.
+
+Amanith was originally used for hardware-accelerated 2D vector graphics
+rendering. Since the library is no longer available/maintained, this module
+provides stub classes that implement the minimal interface needed by the
+game, delegating basic operations to standard OpenGL calls where possible.
+
+Classes:
+    GKernel: Stub kernel class (no-op).
+    GMatrix33: Stub 3x3 matrix class (no-op).
+    GOpenGLBoard: OpenGL drawing board with basic viewport, projection,
+                  and clear operations.
+"""
 
 from OpenGL.GL import *
 

@@ -1,8 +1,9 @@
 #####################################################################
-# -*- coding: iso-8859-1 -*-                                        #
+# -*- coding: utf-8 -*-                                             #
 #                                                                   #
 # Frets on Fire                                                     #
-# Copyright (C) 2006 Sami Kyöstilä                                  #
+# Copyright (C) 2006 Sami KyÃ¶stilÃ¤                                  #
+# Python 3 Port (2026)                                              #
 #                                                                   #
 # This program is free software; you can redistribute it and/or     #
 # modify it under the terms of the GNU General Public License       #
@@ -19,6 +20,15 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,        #
 # MA  02110-1301, USA.                                              #
 #####################################################################
+
+"""
+SVG color name to RGB mapping.
+
+This module provides a dictionary mapping standard SVG/CSS color names
+to their corresponding RGB tuple values (normalized to 0.0-1.0 range).
+Used by the SVG rendering system to convert named colors to OpenGL-compatible
+RGB values.
+"""
 
 colors = {
   "snow"                  : (1.00, 0.98, 0.98),

@@ -1,8 +1,9 @@
 #####################################################################
-# -*- coding: iso-8859-1 -*-                                        #
+# -*- coding: utf-8 -*-                                             #
 #                                                                   #
 # Frets on Fire                                                     #
-# Copyright (C) 2006 Sami Kyöstilä                                  #
+# Copyright (C) 2006 Sami KyÃ¶stilÃ¤                                  #
+# Python 3 Port (2026)                                              #
 #                                                                   #
 # This program is free software; you can redistribute it and/or     #
 # modify it under the terms of the GNU General Public License       #
@@ -20,6 +21,32 @@
 # MA  02110-1301, USA.                                              #
 #####################################################################
 
+"""
+Main game engine module for Frets on Fire.
+
+This module contains the GameEngine class, which is the central coordinator
+for all game subsystems. It initializes and manages:
+
+- Video: OpenGL rendering and display management
+- Audio: Sound playback and music streaming
+- Input: Keyboard, mouse, and gamepad handling
+- Resources: Asset loading and caching
+- View: Scene/layer stack and rendering pipeline
+- Configuration: Game settings and preferences
+- Mods/Themes: Visual customization support
+
+The GameEngine extends the base Engine class to provide game-specific
+functionality including fullscreen toggling, debug mode, and the main
+game loop with loading screen support.
+
+Typical usage:
+    engine = GameEngine(config)
+    engine.setStartupLayer(MainMenu(engine))
+    while engine.run():
+        pass
+    engine.quit()
+"""
+
 from OpenGL.GL import *
 import pygame
 import os
@@ -32,12 +59,13 @@ from View import View
 from Input import Input, KeyListener, SystemEventListener
 from Resource import Resource
 from Data import Data
-from Server import Server
-from Session import ClientSession
+# Server and Session removed - single player only
+# from Server import Server
+# from Session import ClientSession
 from Svg import SvgContext, SvgDrawing, LOW_QUALITY, NORMAL_QUALITY, HIGH_QUALITY
 from Debug import DebugLayer
 from Language import _
-import Network
+# import Network
 import Log
 import Config
 import Dialogs
@@ -73,14 +101,37 @@ Config.define("video",  "fontscale",  float,    1.0,  text = _("Text scale"),   
 
 class FullScreenSwitcher(KeyListener):
   """
-  A keyboard listener that looks for special built-in key combinations,
-  such as the fullscreen toggle (Alt-Enter).
+  A keyboard listener that handles special built-in key combinations.
+
+  Provides global keyboard shortcuts for:
+  - Alt+Enter: Toggle fullscreen mode
+  - Alt+D: Toggle debug mode
+  - Alt+G: Dump garbage collector info (debug mode only)
+
+  Attributes:
+      engine: Reference to the GameEngine instance.
+      altStatus: Tracks whether Alt key is currently pressed.
   """
+
   def __init__(self, engine):
+    """Initialize the fullscreen switcher.
+
+    Args:
+        engine: The GameEngine instance to control.
+    """
     self.engine = engine
     self.altStatus = False
   
-  def keyPressed(self, key, unicode):
+  def keyPressed(self, key, str):
+    """Handle key press events for global shortcuts.
+
+    Args:
+        key: The pygame key code that was pressed.
+        str: The string representation of the key (unused).
+
+    Returns:
+        True if the key event was handled, None otherwise.
+    """
     if key == pygame.K_LALT:
       self.altStatus = True
     elif key == pygame.K_RETURN and self.altStatus:
@@ -95,33 +146,85 @@ class FullScreenSwitcher(KeyListener):
       return True
 
   def keyReleased(self, key):
+    """Handle key release events.
+
+    Args:
+        key: The pygame key code that was released.
+    """
     if key == pygame.K_LALT:
       self.altStatus = False
       
 class SystemEventHandler(SystemEventListener):
   """
-  A system event listener that takes care of restarting the game when needed
-  and reacting to screen resize events.
+  A system event listener that handles window and application events.
+
+  Responds to system-level events including:
+  - Screen resize: Updates viewport and SVG context geometry
+  - Restart requests: Triggers full game restart
+  - Quit: Initiates graceful shutdown
+
+  Attributes:
+      engine: Reference to the GameEngine instance.
   """
+
   def __init__(self, engine):
+    """Initialize the system event handler.
+
+    Args:
+        engine: The GameEngine instance to control.
+    """
     self.engine = engine
 
   def screenResized(self, size):
+    """Handle window resize events.
+
+    Args:
+        size: Tuple of (width, height) in pixels.
+    """
     self.engine.resizeScreen(size[0], size[1])
-    
+
   def restartRequested(self):
+    """Handle restart request events."""
     self.engine.restart()
-    
+
   def quit(self):
+    """Handle quit events."""
     self.engine.quit()
 
 class GameEngine(Engine):
-  """The main game engine."""
-  def __init__(self, config = None):
-    """
-    Constructor.
+  """
+  The main game engine that coordinates all game subsystems.
 
-    @param config:  L{Config} instance for settings
+  GameEngine is the central hub of the application, responsible for
+  initializing and managing all major subsystems. It extends the base
+  Engine class to provide game-specific functionality.
+
+  Attributes:
+      config: Configuration manager for game settings.
+      title: Window title string.
+      restartRequested: Flag indicating a pending restart.
+      handlingException: Flag to prevent recursive exception handling.
+      video: Video subsystem for display and OpenGL management.
+      audio: Audio subsystem for sound and music playback.
+      input: Input subsystem for keyboard/mouse/gamepad handling.
+      view: View manager for scene/layer rendering.
+      resource: Resource manager for async asset loading.
+      data: Data loader for game assets (fonts, images, sounds).
+      svg: SVG rendering context for vector graphics.
+      server: Deprecated - always None (single-player only).
+      sessions: List of active game sessions.
+      mainloop: Current main loop function (loading or main).
+      debugLayer: Debug overlay layer (None if disabled).
+      startupLayer: Layer to show after loading completes.
+      loadingScreenShown: Flag tracking loading screen display.
+  """
+
+  def __init__(self, config=None):
+    """Initialize the game engine and all subsystems.
+
+    Args:
+        config: Optional Config instance. If None, loads from default
+            configuration file.
     """
 
     if not config:
@@ -204,22 +307,29 @@ class GameEngine(Engine):
     Log.debug("Ready.")
 
   def setStartupLayer(self, startupLayer):
-    """
-    Set the L{Layer} that will be shown when the all
-    the resources have been loaded. See L{Data}
+    """Set the layer to display after resources are loaded.
 
-    @param startupLayer:    Startup L{Layer}
+    This layer (typically the MainMenu) is pushed onto the view
+    stack once all essential resources have been loaded.
+
+    Args:
+        startupLayer: A Layer instance to display at startup.
     """
     self.startupLayer = startupLayer
 
   def isDebugModeEnabled(self):
-    return bool(self.debugLayer)
-    
-  def setDebugModeEnabled(self, enabled):
-    """
-    Show or hide the debug layer.
+    """Check if debug mode is currently enabled.
 
-    @type enabled: bool
+    Returns:
+        True if debug layer is active, False otherwise.
+    """
+    return bool(self.debugLayer)
+
+  def setDebugModeEnabled(self, enabled):
+    """Enable or disable the debug overlay layer.
+
+    Args:
+        enabled: True to show debug layer, False to hide.
     """
     if enabled:
       self.debugLayer = DebugLayer(self)
@@ -227,10 +337,13 @@ class GameEngine(Engine):
       self.debugLayer = None
     
   def toggleFullscreen(self):
-    """
-    Toggle between fullscreen and windowed mode.
+    """Toggle between fullscreen and windowed display modes.
 
-    @return: True on success
+    On Windows, toggling fullscreen requires a full game restart
+    due to OpenGL context/texture limitations.
+
+    Returns:
+        True on success (always returns True, may trigger restart).
     """
     if not self.video.toggleFullscreen():
       # on windows, the fullscreen toggle kills our textures, se we must restart the whole game
@@ -241,7 +354,12 @@ class GameEngine(Engine):
     return True
     
   def restart(self):
-    """Restart the game."""
+    """Request a full game restart.
+
+    Sets the restart flag and broadcasts a restart event. If a restart
+    is already pending, calls Engine.quit() directly as a workaround
+    for audio cleanup issues.
+    """
     if not self.restartRequested:
       self.restartRequested = True
       self.input.broadcastSystemEvent("restartRequested")
@@ -249,78 +367,105 @@ class GameEngine(Engine):
         # evilynux - With self.audio.close(), calling self.quit() results in
         #            a crash. Calling the parent directly as a workaround.
         Engine.quit(self)
-    
+
   def quit(self):
+    """Shut down the game engine and release all resources.
+
+    Closes the audio subsystem and calls the parent Engine.quit()
+    to stop all tasks and clean up.
+    """
     self.audio.close()
     Engine.quit(self)
 
   def resizeScreen(self, width, height):
-    """
-    Resize the game screen.
+    """Resize the game screen and update rendering contexts.
 
-    @param width:   New width in pixels
-    @param height:  New height in pixels
+    Updates both the View and SVG context geometry to match
+    the new screen dimensions.
+
+    Args:
+        width: New width in pixels.
+        height: New height in pixels.
     """
     self.view.setGeometry((0, 0, width, height))
     self.svg.setGeometry((0, 0, width, height))
     
   def isServerRunning(self):
-    return bool(self.server)
+    """Check if game server is running.
+
+    Note:
+        Server functionality has been removed. This always returns False.
+
+    Returns:
+        False (single-player mode only).
+    """
+    # Server removed - single player only
+    return False
 
   def startServer(self):
-    """Start the game server."""
-    if not self.server:
-      Log.debug("Starting server.")
-      self.server = Server(self)
-      self.addTask(self.server, synchronized = False)
+    """Start the game server - not available in single player mode."""
+    Log.warn("Server functionality removed - single player mode only")
+    pass
 
   def connect(self, host):
-    """
-    Connect to a game server.
+    """Connect to a game server (deprecated).
 
-    @param host:  Name of host to connect to
-    @return:      L{Session} connected to remote server
+    Note:
+        Network functionality has been removed for single-player mode.
+
+    Args:
+        host: Server hostname (ignored).
+
+    Returns:
+        None (always).
     """
-    Log.debug("Connecting to host %s." % host)
-    session = ClientSession(self)
-    session.connect(host)
-    self.addTask(session, synchronized = False)
-    self.sessions.append(session)
-    return session
+    Log.warn("Network functionality removed - single player mode only")
+    return None
 
   def stopServer(self):
-    """Stop the game server."""
-    if self.server:
-      Log.debug("Stopping server.")
-      self.removeTask(self.server)
-      self.server = None
+    """Stop the game server - not available in single player mode."""
+    pass
 
   def disconnect(self, session):
-    """
-    Disconnect a L{Session}
+    """Disconnect a session (deprecated).
 
-    param session:    L{Session} to disconnect
-    """
-    if session in self.sessions:
-      Log.debug("Disconnecting.")
-      self.removeTask(session)
-      self.sessions.remove(session)
+    Note:
+        Network functionality has been removed for single-player mode.
 
-  def loadSvgDrawing(self, target, name, fileName, textureSize = None):
+    Args:
+        session: Session to disconnect (ignored).
     """
-    Load an SVG drawing synchronously.
-    
-    @param target:      An object that will own the drawing
-    @param name:        The name of the attribute the drawing will be assigned to
-    @param fileName:    The name of the file in the data directory
-    @param textureSize  Either None or (x, y), in which case the file will
-                        be rendered to an x by y texture
-    @return:            L{SvgDrawing} instance
+    pass
+
+  def loadSvgDrawing(self, target, name, fileName, textureSize=None):
+    """Load an SVG drawing synchronously.
+
+    Loads an SVG file from the data directory and optionally renders
+    it to a texture of specified size.
+
+    Args:
+        target: Object that will own the drawing. The drawing is
+            assigned as an attribute on this object.
+        name: Attribute name to assign the drawing to on target.
+        fileName: Name of the SVG file in the data directory.
+        textureSize: Optional tuple (width, height) to render the SVG
+            to a texture. If None, uses native SVG rendering.
+
+    Returns:
+        SvgDrawing instance ready for rendering.
     """
     return self.data.loadSvgDrawing(target, name, fileName, textureSize)
 
   def loading(self):
-    """Loading state loop."""
+    """Loading state main loop.
+
+    Handles the initial loading phase where essential resources are
+    loaded before the game can start. Once resources are loaded,
+    shows the loading screen and transitions to the main loop.
+
+    Returns:
+        True if engine should continue running, False to quit.
+    """
     done = Engine.run(self)
     self.clearScreen()
     
@@ -336,11 +481,19 @@ class GameEngine(Engine):
     return done
 
   def clearScreen(self):
+    """Clear the screen with the theme's background color."""
     self.svg.clear(*Theme.backgroundColor)
 
   def main(self):
-    """Main state loop."""
+    """Main game state loop.
 
+    The primary game loop that runs after loading is complete.
+    Handles task execution, view rendering, debug overlay,
+    and screen buffer flipping.
+
+    Returns:
+        True if engine should continue running, False to quit.
+    """
     # Tune the scheduler priority so that transitions are as smooth as possible
     if self.view.isTransitionInProgress():
       self.boostBackgroundThreads(False)
@@ -356,13 +509,25 @@ class GameEngine(Engine):
     return done
 
   def run(self):
+    """Execute one iteration of the game loop.
+
+    Delegates to the current mainloop function (loading or main)
+    and handles any exceptions by displaying an error dialog.
+
+    Returns:
+        True if engine should continue running, False to quit.
+
+    Raises:
+        KeyboardInterrupt: Exits immediately.
+        SystemExit: Exits immediately.
+    """
     try:
       return self.mainloop()
     except KeyboardInterrupt:
       sys.exit(0)
     except SystemExit:
       sys.exit(0)
-    except Exception, e:
+    except Exception as e:
       def clearMatrixStack(stack):
         try:
           glMatrixMode(stack)
@@ -383,6 +548,6 @@ class GameEngine(Engine):
       clearMatrixStack(GL_PROJECTION)
       clearMatrixStack(GL_MODELVIEW)
       
-      Dialogs.showMessage(self, unicode(e))
+      Dialogs.showMessage(self, str(e))
       self.handlingException = False
       return True

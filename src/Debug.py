@@ -1,8 +1,9 @@
 #####################################################################
-# -*- coding: iso-8859-1 -*-                                        #
+# -*- coding: utf-8 -*-                                             #
 #                                                                   #
 # Frets on Fire                                                     #
-# Copyright (C) 2006 Sami Kyöstilä                                  #
+# Copyright (C) 2006 Sami KyÃ¶stilÃ¤                                  #
+# Python 3 Port (2026)                                              #
 #                                                                   #
 # This program is free software; you can redistribute it and/or     #
 # modify it under the terms of the GNU General Public License       #
@@ -20,6 +21,22 @@
 # MA  02110-1301, USA.                                              #
 #####################################################################
 
+"""
+Debug overlay layer for Frets on Fire.
+
+This module provides a visual debugging overlay that displays real-time
+information about the game engine's internal state, including:
+- Active tasks and frame tasks
+- Rendering layers (active, incoming, outgoing)
+- Loaded scenes and resource loaders
+- Input listeners (mouse, keyboard, system)
+- System statistics (threads, FPS, sessions)
+
+The debug layer can be toggled during gameplay to help developers
+diagnose performance issues, track resource loading, and understand
+the current state of the game engine.
+"""
+
 from OpenGL.GL import *
 from View import Layer
 
@@ -28,15 +45,44 @@ import threading
 import Log
 
 class DebugLayer(Layer):
-  """A layer for showing some debug information."""
+  """
+  A visual overlay layer that displays debug information about the game engine.
+  
+  This layer renders text information in a green color over the game view,
+  organized into sections showing tasks, layers, scenes, loaders, input
+  listeners, and system statistics.
+  
+  Attributes:
+      engine: Reference to the main game engine instance.
+  """
+  
   def __init__(self, engine):
+    """Initialize the debug layer.
+    
+    Args:
+        engine: The GameEngine instance to monitor and display info for.
+    """
     self.engine = engine
     #gc.set_debug(gc.DEBUG_LEAK)
 
   def className(self, instance):
+    """Extract the class name from an object instance.
+    
+    Args:
+        instance: Any object instance.
+        
+    Returns:
+        The class name as a string (without module prefix).
+    """
     return str(instance.__class__).split(".")[1]
   
   def render(self, visibility, topMost):
+    """Render the debug overlay with engine state information.
+    
+    Args:
+        visibility: The visibility level of this layer (0.0 to 1.0).
+        topMost: Whether this layer is currently the topmost layer.
+    """
     self.engine.view.setOrthogonalProjection(normalize = True)
     
     try:
@@ -54,7 +100,7 @@ class DebugLayer(Layer):
         
       x, y = (.5, .05)
       font.render("Layers:", (x, y), scale = scale)
-      for layer in self.engine.view.layers + self.engine.view.incoming + self.engine.view.outgoing + self.engine.view.visibility.keys():
+      for layer in self.engine.view.layers + self.engine.view.incoming + self.engine.view.outgoing + list(self.engine.view.visibility.keys()):
         font.render(self.className(layer), (x + .1, y), scale = scale)
         y += h
         
@@ -96,6 +142,12 @@ class DebugLayer(Layer):
       self.engine.view.resetProjection()
 
   def gcDump(self):
+    """Perform garbage collection and dump garbage objects to a file.
+    
+    Runs a garbage collection cycle, logs statistics about collected
+    objects, and writes any remaining garbage objects to 'gcdump.txt'
+    for debugging memory leaks.
+    """
     import World
     before = len(gc.get_objects())
     coll   = gc.collect()
@@ -107,7 +159,7 @@ class DebugLayer(Layer):
     gc.collect()
     for obj in gc.garbage:
       try:
-        print >>f, obj
+        print(obj, file=f)
         n += 1
       except:
         pass

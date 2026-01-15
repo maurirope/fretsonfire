@@ -1,8 +1,9 @@
 #####################################################################
-# -*- coding: iso-8859-1 -*-                                        #
+# -*- coding: utf-8 -*-                                             #
 #                                                                   #
 # Frets on Fire                                                     #
-# Copyright (C) 2006 Sami Kyöstilä                                  #
+# Copyright (C) 2006 Sami KyÃ¶stilÃ¤                                  #
+# Single Player Refactor (2026)                                     #
 #                                                                   #
 # This program is free software; you can redistribute it and/or     #
 # modify it under the terms of the GNU General Public License       #
@@ -20,12 +21,15 @@
 # MA  02110-1301, USA.                                              #
 #####################################################################
 
+"""
+Scene management for single-player mode.
+Simplified from the original networked architecture.
+"""
+
 from Player import Player
 from View import BackgroundLayer
-from Session import MessageHandler, Message
 from Input import KeyListener
 from Camera import Camera
-import Network
 import Player
 import Config
 
@@ -35,21 +39,46 @@ import math
 import colorsys
 import pygame
 
-Config.define("network", "updateinterval", int, 72)
 
-# Messages from client to server
-class CreateActor(Message): pass
-class ControlEvent(Message): pass
+class ObjectCollection:
+  """Collection of game objects with ID-based access."""
+  def __init__(self):
+    self.objects = {}
+    self._nextId = 0
 
-# Messages from server to client
-class ActorCreated(Message): pass
-class ActorDeleted(Message): pass
-class ActorData(Message): pass
-class ControlData(Message): pass
+  def add(self, obj):
+    self._nextId += 1
+    self.objects[self._nextId] = obj
+    return self._nextId
 
-class Scene(MessageHandler, BackgroundLayer):
+  def remove(self, id):
+    if id in self.objects:
+      del self.objects[id]
+
+  def get(self, id):
+    return self.objects.get(id)
+
+  def id(self, obj):
+    """Get the ID for an object."""
+    for id, o in self.objects.items():
+      if o is obj:
+        return id
+    return None
+
+  def __iter__(self):
+    return iter(self.objects.values())
+
+  def __getitem__(self, id):
+    return self.objects[id]
+
+  def __setitem__(self, id, value):
+    self.objects[id] = value
+
+
+class Scene(BackgroundLayer):
+  """Base class for game scenes."""
   def __init__(self, engine, owner, **args):
-    self.objects = Network.ObjectCollection()
+    self.objects = ObjectCollection()
     self.args    = args
     self.owner   = owner
     self.engine  = engine
@@ -58,7 +87,6 @@ class Scene(MessageHandler, BackgroundLayer):
     self.world   = None
     self.space   = None
     self.time    = 0.0
-    self.actors  = []
     self.players = []
     self.createCommon(**args)
 
@@ -71,27 +99,19 @@ class Scene(MessageHandler, BackgroundLayer):
   def createCommon(self, **args):
     pass
 
-  def runCommon(self, ticks, world):
+  def runCommon(self, ticks, session):
     pass
     
   def run(self, ticks):
     self.time += ticks / 50.0
 
-  def handleActorCreated(self, sender, id, owner, name):
-    actor = globals()[name](self, owner)
-    self.objects[id] = actor
-    self.actors.append(actor)
-
-  def handleActorDeleted(self, sender, id):
-    actor = self.objects[id]
-    self.actors.remove(actor)
-    del self.objects[id]
 
 class SceneClient(Scene, KeyListener):
+  """Client-side scene for single-player gameplay."""
   def __init__(self, engine, owner, session, **args):
     Scene.__init__(self, engine, owner, **args)
     self.session = session
-    self.player = self.session.world.getLocalPlayer()
+    self.player = self.session.getLocalPlayer()
     self.controls = Player.Controls()
     self.createClient(**args)
 
@@ -99,7 +119,8 @@ class SceneClient(Scene, KeyListener):
     pass
 
   def createActor(self, name):
-    self.session.sendMessage(CreateActor(name = name))
+    """Create an actor directly (no network involved)."""
+    pass
 
   def shown(self):
     self.engine.input.addKeyListener(self)
@@ -107,33 +128,26 @@ class SceneClient(Scene, KeyListener):
   def hidden(self):
     self.engine.input.removeKeyListener(self)
 
-  def keyPressed(self, key, unicode):
+  def keyPressed(self, key, str):
     c = self.controls.keyPressed(key)
     if c:
-      self.session.sendMessage(ControlEvent(flags = self.controls.flags))
+      # In single-player, apply controls directly to player
+      if self.player:
+        self.player.controls.flags = self.controls.flags
       return True
     return False
 
   def keyReleased(self, key):
     c = self.controls.keyReleased(key)
     if c:
-      self.session.sendMessage(ControlEvent(flags = self.controls.flags))
+      # In single-player, apply controls directly to player
+      if self.player:
+        self.player.controls.flags = self.controls.flags
       return True
     return False
 
-  def handleControlData(self, sender, owner, flags):
-    # TODO: player mapping
-    for player in self.session.world.players:
-      if player.owner == owner:
-        player.controls.flags = flags
-        break
-
-  def handleActorData(self, sender, id, data):
-    actor = self.objects[id]
-    actor.setState(*data)
-
   def run(self, ticks):
-    self.runCommon(ticks, self.session.world)
+    self.runCommon(ticks, self.session)
     Scene.run(self, ticks)
     
   def render3D(self):
@@ -162,53 +176,9 @@ class SceneClient(Scene, KeyListener):
       glPopMatrix()
       glMatrixMode(GL_MODELVIEW)
 
+
+# SceneServer is kept as a stub for compatibility
+# but is not used in single-player mode
 class SceneServer(Scene):
-  def __init__(self, engine, owner, server, **args):
-    Scene.__init__(self, engine, owner, **args)
-    self.server = server
-    self.updateInterval = self.engine.config.get("network", "updateinterval")
-    self.updateCounter = 0
-    self.changedControlData = {}
-
-  def handleControlEvent(self, sender, flags):
-    self.changedControlData[sender] = flags
-
-  def handleControlData(self, sender, owner, flags):
-    # TODO: player mapping
-    for player in self.server.world.players:
-      if player.owner == owner:
-        player.controls.flags = flags
-        break
-
-  def handleCreateActor(self, sender, name):
-    id = self.objects.generateId()
-    self.server.broadcastMessage(ActorCreated(owner = sender, name = name, id = id))
-
-  def handleSessionClosed(self, session):
-    for actor in self.actors:
-      if actor.owner == session.id:
-        id = self.objects.id(actor)
-        self.server.broadcastMessage(ActorDeleted(id = id))
-
-  def handleSessionOpened(self, session):
-    for actor in self.actors:
-      id = self.objects.id(actor)
-      session.sendMessage(ActorCreated(owner = actor.owner, name = actor.__name__, id = id))
-
-  def broadcastState(self):
-    for actor in self.actors:
-      id = self.objects.id(actor)
-      self.server.broadcastMessage(ActorData(id = id, data = actor.getState()), meToo = False)
-
-    for sender, flags in self.changedControlData.items():
-      self.server.broadcastMessage(ControlData(owner = sender, flags = flags))
-    self.changedControlData = {}
-
-  def run(self, ticks):
-    self.runCommon(ticks, self.server.world)
-    Scene.run(self, ticks)
-
-    self.updateCounter += ticks
-    if self.updateCounter > self.updateInterval:
-      self.updateCounter %= self.updateInterval
-      self.broadcastState()
+  """Server-side scene - not used in single-player mode."""
+  pass

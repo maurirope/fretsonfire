@@ -1,8 +1,9 @@
 #####################################################################
-# -*- coding: iso-8859-1 -*-                                        #
+# -*- coding: utf-8 -*-                                             #
 #                                                                   #
 # Frets on Fire                                                     #
-# Copyright (C) 2006 Sami Kyöstilä                                  #
+# Copyright (C) 2006 Sami KyÃ¶stilÃ¤                                  #
+# Python 3 Port (2026)                                              #
 #                                                                   #
 # This program is free software; you can redistribute it and/or     #
 # modify it under the terms of the GNU General Public License       #
@@ -20,6 +21,22 @@
 # MA  02110-1301, USA.                                              #
 #####################################################################
 
+"""
+Settings menu module for Frets on Fire.
+
+This module provides the settings and configuration menu system, allowing
+users to customize game options including:
+
+- Game settings (language, lefty mode, tapping, score uploads)
+- Video settings (resolution, fullscreen, FPS, multisampling)
+- Audio settings (volume levels, frequency, buffer size)
+- Key bindings (customizable control mapping)
+- Mod settings (enable/disable installed modifications)
+
+The module implements specialized menu choice classes that integrate with
+the Config system for persistent storage of user preferences.
+"""
+
 import Menu
 from Language import _
 import Dialogs
@@ -30,6 +47,21 @@ import Audio
 import pygame
 
 class ConfigChoice(Menu.Choice):
+  """
+  A menu choice that is bound to a configuration option.
+  
+  This class connects a menu selection to a configuration value, allowing
+  users to modify settings through the menu interface. Changes can be
+  applied immediately or deferred until explicitly saved.
+  
+  Attributes:
+      config: The Config instance to read/write settings from.
+      section: Configuration section name (e.g., 'game', 'video').
+      option: Configuration option name within the section.
+      changed: Flag indicating if the value has been modified.
+      value: The new value if changed, None otherwise.
+      autoApply: If True, changes are saved immediately on selection.
+  """
   def __init__(self, config, section, option, autoApply = False):
     self.config    = config
     self.section   = section
@@ -40,7 +72,7 @@ class ConfigChoice(Menu.Choice):
     o = config.prototype[section][option]
     v = config.get(section, option)
     if isinstance(o.options, dict):
-      values     = o.options.values()
+      values     = list(o.options.values())
       values.sort()
       try:
         valueIndex = values.index(o.options[v])
@@ -57,10 +89,16 @@ class ConfigChoice(Menu.Choice):
     Menu.Choice.__init__(self, text = o.text, callback = self.change, values = values, valueIndex = valueIndex)
     
   def change(self, value):
+    """
+    Handle selection of a new value.
+    
+    Args:
+        value: The new value selected from the options list.
+    """
     o = self.config.prototype[self.section][self.option]
     
     if isinstance(o.options, dict):
-      for k, v in o.options.items():
+      for k, v in list(o.options.items()):
         if v == value:
           value = k
           break
@@ -72,21 +110,51 @@ class ConfigChoice(Menu.Choice):
       self.apply()
 
   def apply(self):
+    """Apply the changed value to the configuration if modified."""
     if self.changed:
       self.config.set(self.section, self.option, self.value)
 
 class VolumeConfigChoice(ConfigChoice):
+  """
+  A configuration choice specialized for volume settings with audio preview.
+  
+  Extends ConfigChoice to play a sound preview when the volume is changed,
+  giving users immediate feedback on their volume selection.
+  
+  Attributes:
+      engine: The game engine instance for accessing audio system.
+  """
   def __init__(self, engine, config, section, option, autoApply = False):
     ConfigChoice.__init__(self, config, section, option, autoApply)
     self.engine = engine
 
   def change(self, value):
+    """
+    Handle volume change and play preview sound.
+    
+    Args:
+        value: The new volume level selected.
+    """
     ConfigChoice.change(self, value)
     sound = self.engine.data.screwUpSound
     sound.setVolume(self.value)
     sound.play()
 
 class KeyConfigChoice(Menu.Choice):
+  """
+  A menu choice for configuring keyboard bindings.
+  
+  Allows users to remap game controls by pressing a new key when selected.
+  Displays the current key binding and updates it when a new key is pressed.
+  
+  Attributes:
+      engine: The game engine instance for input handling.
+      config: The Config instance to store key bindings.
+      section: Configuration section name (typically 'player').
+      option: Configuration option name for the specific key binding.
+      changed: Flag indicating if the binding was modified.
+      value: The new key value if changed.
+  """
   def __init__(self, engine, config, section, option):
     self.engine  = engine
     self.config  = config
@@ -97,6 +165,15 @@ class KeyConfigChoice(Menu.Choice):
     Menu.Choice.__init__(self, text = "", callback = self.change)
 
   def getText(self, selected):
+    """
+    Get display text showing the control name and current key binding.
+    
+    Args:
+        selected: Whether this menu item is currently selected.
+    
+    Returns:
+        str: Formatted string with control name and key name.
+    """
     def keycode(k):
       try:
         return int(k)
@@ -107,10 +184,16 @@ class KeyConfigChoice(Menu.Choice):
     return "%s: %s" % (o.text, pygame.key.name(keycode(v)).capitalize())
     
   def change(self):
+    """
+    Prompt user to press a new key for this control binding.
+    
+    Opens a dialog asking the user to press a key. If a valid key
+    is pressed, updates the configuration and reloads controls.
+    """
     o = self.config.prototype[self.section][self.option]
 
     if isinstance(o.options, dict):
-      for k, v in o.options.items():
+      for k, v in list(o.options.items()):
         if v == value:
           value = k
           break
@@ -122,10 +205,25 @@ class KeyConfigChoice(Menu.Choice):
       self.engine.input.reloadControls()
 
   def apply(self):
+    """No-op: key changes are applied immediately in change()."""
     pass
 
 
 class SettingsMenu(Menu.Menu):
+  """
+  Main settings menu with categorized configuration options.
+  
+  Provides a hierarchical menu structure for all game settings including
+  game options, key bindings, video settings, and audio settings. Changes
+  to most settings require clicking 'Apply New Settings' and restarting
+  the game to take effect.
+  
+  Attributes:
+      engine: The game engine instance.
+      settingsToApply: List of all ConfigChoice instances that need
+          to be saved when applying settings.
+  """
+  
   def __init__(self, engine):
     self.engine = engine
     applyItem = [(_("Apply New Settings"), self.applySettings)]
@@ -211,6 +309,12 @@ class SettingsMenu(Menu.Menu):
     Menu.Menu.__init__(self, engine, settings)
 
   def applySettings(self):
+    """
+    Save all modified settings to configuration file.
+    
+    Iterates through all setting options and applies any changes,
+    then displays a message prompting the user to restart the game.
+    """
     for option in self.settingsToApply:
       if isinstance(option, ConfigChoice):
         option.apply()
@@ -218,6 +322,12 @@ class SettingsMenu(Menu.Menu):
     Dialogs.showMessage(self.engine, _("Settings saved. Please restart the game to activate the new settings."))
 
 class GameSettingsMenu(Menu.Menu):
+  """
+  In-game settings menu for quick volume adjustments.
+  
+  A simplified settings menu accessible during gameplay that only
+  includes volume controls with immediate application (no restart required).
+  """
   def __init__(self, engine):
     settings = [
       VolumeConfigChoice(engine, engine.config, "audio",  "guitarvol", autoApply = True),

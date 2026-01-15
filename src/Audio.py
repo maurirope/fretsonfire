@@ -1,8 +1,9 @@
 #####################################################################
-# -*- coding: iso-8859-1 -*-                                        #
+# -*- coding: utf-8 -*-                                             #
 #                                                                   #
 # Frets on Fire                                                     #
-# Copyright (C) 2006 Sami Kyöstilä                                  #
+# Copyright (C) 2006 Sami KyÃ¶stilÃ¤                                  #
+# Python 3 Port (2026)                                              #
 #                                                                   #
 # This program is free software; you can redistribute it and/or     #
 # modify it under the terms of the GNU General Public License       #
@@ -19,6 +20,22 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,        #
 # MA  02110-1301, USA.                                              #
 #####################################################################
+
+"""
+Audio playback module for Frets on Fire.
+
+This module provides audio playback functionality using the pygame mixer library.
+It supports playing sound effects (Sound), background music (Music), and streaming
+audio files. The module also includes experimental support for pyglet-based audio
+and OGG Vorbis streaming.
+
+Classes:
+    Audio: Main audio system manager that handles mixer initialization and channels.
+    Sound: Represents a sound effect that can be played multiple times.
+    Music: Handles background music playback with streaming support.
+    Channel: Represents an audio channel for mixing multiple sounds.
+    StreamingSound: Sound class with support for streaming large audio files.
+"""
 
 import pygame
 import Log
@@ -172,14 +189,53 @@ if "pyglet" in sys.modules:
 
 else: # pygame
   class Audio(Task):
+    """
+    Main audio system manager using pygame mixer.
+
+    This class handles the initialization and management of the pygame audio
+    mixer. It provides methods for opening/closing the audio system, managing
+    audio channels, and controlling global pause/unpause of all audio.
+
+    Attributes:
+        Inherits from Task for integration with the game engine's task system.
+    """
+
     def __init__(self):
+      """Initialize the Audio task."""
       Task.__init__(self)
 
     def pre_open(self, frequency = 22050, bits = 16, stereo = True, bufferSize = 1024):
+      """
+      Pre-initialize the pygame mixer before pygame.init().
+
+      Args:
+          frequency: Audio sample rate in Hz. Defaults to 22050.
+          bits: Audio bit depth. Defaults to 16.
+          stereo: If True, enable stereo output. Defaults to True.
+          bufferSize: Audio buffer size in samples. Defaults to 1024.
+
+      Returns:
+          bool: Always returns True.
+      """
       pygame.mixer.pre_init(frequency, -bits, stereo and 2 or 1, bufferSize)
       return True
 
     def open(self, frequency = 22050, bits = 16, stereo = True, bufferSize = 1024):
+      """
+      Initialize the pygame mixer with the specified audio settings.
+
+      If initialization fails with the specified settings, falls back to
+      default configuration.
+
+      Args:
+          frequency: Audio sample rate in Hz. Defaults to 22050.
+          bits: Audio bit depth. Defaults to 16.
+          stereo: If True, enable stereo output. Defaults to True.
+          bufferSize: Audio buffer size in samples. Defaults to 1024.
+
+      Returns:
+          bool: Always returns True.
+      """
       try:
         pygame.mixer.quit()
       except:
@@ -195,87 +251,238 @@ else: # pygame
       return True
 
     def getChannelCount(self):
+      """
+      Get the number of available audio channels.
+
+      Returns:
+          int: The number of audio channels available for mixing.
+      """
       return pygame.mixer.get_num_channels()
 
     def getChannel(self, n):
+      """
+      Get a specific audio channel by index.
+
+      Args:
+          n: The channel index.
+
+      Returns:
+          Channel: A Channel object for the specified index.
+      """
       return Channel(n)
 
     def close(self):
+      """
+      Close the audio mixer and release resources.
+
+      Note:
+          On macOS (darwin), this method does nothing to avoid a pygame crash.
+      """
       # PyGame crashes on mac if you do this
       if sys.platform != "darwin":
         pygame.mixer.quit()
 
     def pause(self):
+      """Pause all audio channels."""
       pygame.mixer.pause()
 
     def unpause(self):
+      """Resume all paused audio channels."""
       pygame.mixer.unpause()
 
   class Music(object):
+    """
+    Background music player using pygame mixer music module.
+
+    This class handles streaming playback of music files, typically used for
+    background music during gameplay. Only one Music instance can play at a time
+    as pygame.mixer.music is a singleton.
+
+    Attributes:
+        Uses pygame.mixer.music internally for streaming playback.
+    """
+
     def __init__(self, fileName):
+      """
+      Load a music file for playback.
+
+      Args:
+          fileName: Path to the music file to load.
+      """
       pygame.mixer.music.load(fileName)
 
     @staticmethod
     def setEndEvent(event):
+      """
+      Set an event to be triggered when music playback ends.
+
+      Args:
+          event: The pygame event type to post when music ends.
+      """
       pygame.mixer.music.set_endevent(event)
 
     def play(self, loops = -1, pos = 0.0):
+      """
+      Start playing the loaded music.
+
+      Args:
+          loops: Number of times to repeat. -1 means loop forever. Defaults to -1.
+          pos: Starting position in seconds. Defaults to 0.0.
+      """
       pygame.mixer.music.play(loops, pos)
 
     def stop(self):
+      """Stop music playback."""
       pygame.mixer.music.stop()
 
     def rewind(self):
+      """Rewind music to the beginning."""
       pygame.mixer.music.rewind()
 
     def pause(self):
+      """Pause music playback."""
       pygame.mixer.music.pause()
 
     def unpause(self):
+      """Resume paused music playback."""
       pygame.mixer.music.unpause()
 
     def setVolume(self, volume):
+      """
+      Set the music volume.
+
+      Args:
+          volume: Volume level from 0.0 (silent) to 1.0 (full volume).
+      """
       pygame.mixer.music.set_volume(volume)
 
     def fadeout(self, time):
+      """
+      Fade out music over the specified time.
+
+      Args:
+          time: Fade duration in milliseconds.
+      """
       pygame.mixer.music.fadeout(time)
 
     def isPlaying(self):
+      """
+      Check if music is currently playing.
+
+      Returns:
+          bool: True if music is playing, False otherwise.
+      """
       return pygame.mixer.music.get_busy()
 
     def getPosition(self):
+      """
+      Get the current playback position.
+
+      Returns:
+          int: Current position in milliseconds, or -1 if not playing.
+      """
       return pygame.mixer.music.get_pos()
 
   class Channel(object):
+    """
+    Audio channel for mixing and playing sounds.
+
+    Wraps a pygame mixer channel to provide sound playback control.
+    Multiple channels allow playing multiple sounds simultaneously.
+
+    Attributes:
+        channel: The underlying pygame.mixer.Channel object.
+    """
+
     def __init__(self, id):
+      """
+      Create a channel wrapper for the specified channel ID.
+
+      Args:
+          id: The channel index to wrap.
+      """
       self.channel = pygame.mixer.Channel(id)
 
     def play(self, sound):
+      """
+      Play a sound on this channel.
+
+      Args:
+          sound: A Sound object to play.
+      """
       self.channel.play(sound.sound)
 
     def stop(self):
+      """Stop any sound playing on this channel."""
       self.channel.stop()
 
     def setVolume(self, volume):
+      """
+      Set the channel volume.
+
+      Args:
+          volume: Volume level from 0.0 (silent) to 1.0 (full volume).
+      """
       self.channel.set_volume(volume)
 
     def fadeout(self, time):
+      """
+      Fade out the channel over the specified time.
+
+      Args:
+          time: Fade duration in milliseconds.
+      """
       self.channel.fadeout(time)
 
   class Sound(object):
+    """
+    Sound effect that can be played on any available channel.
+
+    Loads a sound file into memory for quick playback. Suitable for
+    short sound effects that may be played multiple times.
+
+    Attributes:
+        sound: The underlying pygame.mixer.Sound object.
+    """
+
     def __init__(self, fileName):
+      """
+      Load a sound file into memory.
+
+      Args:
+          fileName: Path to the sound file to load.
+      """
       self.sound   = pygame.mixer.Sound(fileName)
 
     def play(self, loops = 0):
+      """
+      Play the sound.
+
+      Args:
+          loops: Number of additional times to play after the first. Defaults to 0.
+      """
       self.sound.play(loops)
 
     def stop(self):
+      """Stop all playback of this sound."""
       self.sound.stop()
 
     def setVolume(self, volume):
+      """
+      Set the sound volume.
+
+      Args:
+          volume: Volume level from 0.0 (silent) to 1.0 (full volume).
+      """
       self.sound.set_volume(volume)
 
     def fadeout(self, time):
+      """
+      Fade out the sound over the specified time.
+
+      Args:
+          time: Fade duration in milliseconds.
+      """
       self.sound.fadeout(time)
 
 if "ogg.vorbis" in sys.modules:
@@ -379,7 +586,7 @@ if "ogg.vorbis" in sys.modules:
       # Decode enough that we have at least one full sound buffer
       # ready in the queue if possible
       while not self.done:
-        for i in xrange(self.decodingRate):
+        for i in range(self.decodingRate):
           soundBuffer = self._decodeStream()
           if soundBuffer:
             self.buffersOut.insert(0, soundBuffer)

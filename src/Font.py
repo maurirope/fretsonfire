@@ -1,8 +1,9 @@
 #####################################################################
-# -*- coding: iso-8859-1 -*-                                        #
+# -*- coding: utf-8 -*-                                             #
 #                                                                   #
 # Frets on Fire                                                     #
-# Copyright (C) 2006 Sami Kyöstilä                                  #
+# Copyright (C) 2006 Sami KyÃ¶stilÃ¤                                  #
+# Python 3 Port (2026)                                              #
 #                                                                   #
 # This program is free software; you can redistribute it and/or     #
 # modify it under the terms of the GNU General Public License       #
@@ -19,6 +20,25 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,        #
 # MA  02110-1301, USA.                                              #
 #####################################################################
+"""
+Font Rendering Module.
+
+This module provides texture-mapped font rendering for OpenGL using pygame's
+font system. It renders text by caching individual glyph textures in a
+texture atlas and compositing them using OpenGL quads.
+
+Key Features:
+    - TTF font loading via pygame.font
+    - Glyph caching in texture atlases for efficient rendering
+    - Optional text outline/shadow effect
+    - String caching for repeated text rendering
+    - Support for custom glyph replacement with textures
+    - Right-to-left text support via reversed rendering
+
+Example:
+    >>> font = Font("font.ttf", size=32, outline=True)
+    >>> font.render("Hello World", pos=(0.1, 0.5), scale=0.002)
+"""
 
 import pygame
 import numpy
@@ -28,9 +48,41 @@ import sys
 from Texture import Texture, TextureAtlas, TextureAtlasFullException
 
 class Font:
-  """A texture-mapped font."""
+  """A texture-mapped font for OpenGL rendering.
+  
+  Renders text using pygame's font system with glyphs cached in OpenGL
+  texture atlases. Supports styling options like bold, italic, underline,
+  and optional shadow/outline effects.
+  
+  Attributes:
+      size: Font size in points.
+      scale: Global scale multiplier for rendering.
+      glyphCache: Dictionary mapping characters to (texture, coords) tuples.
+      glyphSizeCache: Dictionary mapping characters to (width, height) tuples.
+      outline: Whether to render a shadow outline behind text.
+      glyphTextures: List of TextureAtlas instances for glyph storage.
+      reversed: Whether to render text right-to-left.
+      stringCache: Cache of pre-computed vertex data for rendered strings.
+      stringCacheLimit: Maximum number of strings to cache.
+      font: Underlying pygame.font.Font instance.
+  """
+  
   def __init__(self, fileName, size, bold = False, italic = False, underline = False, outline = True,
                scale = 1.0, reversed = False, systemFont = False):
+    """Initialize a font from a TTF file.
+    
+    Args:
+        fileName: Path to the TTF font file.
+        size: Font size in points.
+        bold: Whether to render in bold style. Defaults to False.
+        italic: Whether to render in italic style. Defaults to False.
+        underline: Whether to render with underline. Defaults to False.
+        outline: Whether to draw a shadow outline. Defaults to True.
+        scale: Global scale multiplier. Defaults to 1.0.
+        reversed: Whether to render text right-to-left. Defaults to False.
+        systemFont: Whether to try loading a system font first.
+            Defaults to False.
+    """
     pygame.font.init()
     self.size             = size
     self.scale            = scale
@@ -55,12 +107,14 @@ class Font:
     self.font.set_underline(underline)
 
   def getStringSize(self, s, scale = 0.002):
-    """
-    Get the dimensions of a string when rendered with this font.
-
-    @param s:       String
-    @param scale:   Scale factor
-    @return:        (width, height) tuple
+    """Get the dimensions of a string when rendered with this font.
+    
+    Args:
+        s: The string to measure.
+        scale: Scale factor for the measurement. Defaults to 0.002.
+    
+    Returns:
+        Tuple of (width, height) in scaled units.
     """
     w = 0
     h = 0
@@ -75,19 +129,30 @@ class Font:
     return (w * scale, h * scale)
 
   def getHeight(self):
-    """@return: The height of this font"""
+    """Get the height of this font.
+    
+    Returns:
+        The font height in scaled units.
+    """
     return self.font.get_height() * self.scale
 
   def getLineSpacing(self):
-    """@return: The line spacing of this font"""
+    """Get the line spacing of this font.
+    
+    Returns:
+        The recommended line spacing in scaled units.
+    """
     return self.font.get_linesize() * self.scale
     
   def setCustomGlyph(self, character, texture):
-    """
-    Replace a character with a texture.
-
-    @param character:   Character to replace
-    @param texture:     L{Texture} instance
+    """Replace a character with a custom texture.
+    
+    Allows substituting a character's glyph with an arbitrary texture,
+    useful for embedding icons or special symbols in text.
+    
+    Args:
+        character: The character to replace (single character string).
+        texture: Texture instance to use for the character.
     """
     texture.setFilter(GL_LINEAR, GL_LINEAR)
     texture.setRepeat(GL_CLAMP, GL_CLAMP)
@@ -96,6 +161,17 @@ class Font:
     self.glyphSizeCache[character] = (texture.pixelSize[0] * s, texture.pixelSize[1] * s)
 
   def _renderString(self, text, pos, direction, scale):
+    """Internal method to render a string using cached geometry.
+    
+    Builds vertex and texture coordinate arrays for the text glyphs,
+    caching them for repeated rendering of the same string.
+    
+    Args:
+        text: The string to render.
+        pos: Tuple of (x, y) position for the text origin.
+        direction: Tuple of (dx, dy) for text flow direction.
+        scale: Scale factor for rendering.
+    """
     if not text:
       return
 
@@ -141,7 +217,7 @@ class Font:
       if len(text) > 5:
         # Limit the cache size
         if len(self.stringCache) > self.stringCacheLimit:
-          del self.stringCache[self.stringCache.keys()[0]]
+          del self.stringCache[list(self.stringCache.keys())[0]]
         self.stringCache[(text, scale)] = cacheEntry
     else:
       cacheEntry = self.stringCache[(text, scale)]
@@ -156,13 +232,18 @@ class Font:
     glPopMatrix()
 
   def render(self, text, pos = (0, 0), direction = (1, 0), scale = 0.002):
-    """
-    Draw some text.
-
-    @param text:      Text to draw
-    @param pos:       Text coordinate tuple (x, y)
-    @param direction: Text direction vector (x, y, z)
-    @param scale:     Scale factor
+    """Draw text to the screen.
+    
+    Renders text at the specified position with optional outline effect.
+    Uses OpenGL vertex arrays for efficient rendering.
+    
+    Args:
+        text: The string to draw.
+        pos: Tuple of (x, y) position in normalized coordinates.
+            Defaults to (0, 0).
+        direction: Tuple of (dx, dy) for text flow direction.
+            Defaults to (1, 0) for left-to-right.
+        scale: Scale factor for text size. Defaults to 0.002.
     """
     glEnable(GL_TEXTURE_2D)
     glEnableClientState(GL_VERTEX_ARRAY)
@@ -186,6 +267,14 @@ class Font:
     glDisable(GL_TEXTURE_2D)
 
   def _allocateGlyphTexture(self):
+    """Allocate a new texture atlas for glyph storage.
+    
+    Creates a TextureAtlas sized to the maximum texture size supported
+    by the graphics hardware.
+    
+    Returns:
+        A new TextureAtlas instance configured for glyph rendering.
+    """
     t = TextureAtlas(size = glGetInteger(GL_MAX_TEXTURE_SIZE))
     t.texture.setFilter(GL_LINEAR, GL_LINEAR)
     t.texture.setRepeat(GL_CLAMP, GL_CLAMP)
@@ -193,11 +282,17 @@ class Font:
     return t
 
   def getGlyph(self, ch):
-    """
-    Get a (L{Texture}, coordinate tuple) pair for a given character.
-
-    @param ch:    Character
-    @return:      (L{Texture} instance, coordinate tuple)
+    """Get the texture and coordinates for a character glyph.
+    
+    Renders the glyph to a texture if not already cached. Uses a texture
+    atlas to efficiently pack multiple glyphs into a single texture.
+    
+    Args:
+        ch: Single character string to get the glyph for.
+    
+    Returns:
+        Tuple of (TextureAtlas, (tx1, ty1, tx2, ty2)) where the texture
+        coordinates define the glyph's location in the atlas.
     """
     try:
       return self.glyphCache[ch]

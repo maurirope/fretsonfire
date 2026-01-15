@@ -1,3 +1,16 @@
+Completed in 1.4.0 (2026-01-14):
+
+ - Ported to Python 3.8+ compatibility
+ - Refactored to single-player only architecture
+ - Removed networking/multiplayer code
+ - Updated all dependencies
+ - Fixed asyncore compatibility issues
+ - Fixed MIDI parser for Python 3
+ - Updated documentation
+ - Improved code maintainability
+
+Legacy TODOs (completed in previous versions):
+
 Released in 1.0.192:
 
  - fix the multisample error on startup (FIXED 186)

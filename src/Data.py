@@ -1,8 +1,9 @@
 #####################################################################
-# -*- coding: iso-8859-1 -*-                                        #
+# -*- coding: utf-8 -*-                                             #
 #                                                                   #
 # Frets on Fire                                                     #
-# Copyright (C) 2006 Sami Kyöstilä                                  #
+# Copyright (C) 2006 Sami KyÃ¶stilÃ¤                                  #
+# Python 3 Port (2026)                                              #
 #                                                                   #
 # This program is free software; you can redistribute it and/or     #
 # modify it under the terms of the GNU General Public License       #
@@ -20,6 +21,18 @@
 # MA  02110-1301, USA.                                              #
 #####################################################################
 
+"""
+Game data and assets loader module.
+
+This module provides the Data class which manages loading and access to
+globally used game resources including fonts, sound effects, and SVG
+drawings. It handles font customization with special glyphs and provides
+convenient access to UI sounds.
+
+The module defines special character constants (STAR1, STAR2, LEFT, RIGHT,
+BALL1, BALL2) that map to custom font glyphs rendered from SVG images.
+"""
+
 from Font import Font
 from Texture import Texture
 from Svg import SvgDrawing, SvgContext
@@ -31,16 +44,53 @@ import Language
 import Config
 
 # these constants define a few customized letters in the default font
-STAR1 = unicode('\x10')
-STAR2 = unicode('\x11')
-LEFT  = unicode('\x12')
-RIGHT = unicode('\x13')
-BALL1 = unicode('\x14')
-BALL2 = unicode('\x15')
+STAR1 = str('\x10')
+STAR2 = str('\x11')
+LEFT  = str('\x12')
+RIGHT = str('\x13')
+BALL1 = str('\x14')
+BALL2 = str('\x15')
 
 class Data(object):
-  """A collection of globally used data resources such as fonts and sound effects."""
+  """
+  A collection of globally used data resources such as fonts and sound effects.
+
+  This class serves as a central repository for game assets that are used
+  throughout the application, including fonts, UI sounds, and decorative
+  graphics. It handles asynchronous loading of resources and provides
+  convenient property-based access to randomly selected sound effects.
+
+  Attributes:
+      resource (Resource): The resource manager for loading assets.
+      svg (SvgContext): The SVG rendering context.
+      star1 (SvgDrawing): Star graphic variant 1 for font customization.
+      star2 (SvgDrawing): Star graphic variant 2 for font customization.
+      left (SvgDrawing): Left arrow graphic for font customization.
+      right (SvgDrawing): Right arrow graphic for font customization.
+      ball1 (SvgDrawing): Ball graphic variant 1 for font customization.
+      ball2 (SvgDrawing): Ball graphic variant 2 for font customization.
+      loadingImage (SvgDrawing): Loading screen image.
+      font (Font): Default game font for regular text.
+      bigFont (Font): Large title font for headings.
+      screwUpSounds (list): Collection of screw-up/mistake sound effects.
+      acceptSound (Sound): Sound played when accepting a selection.
+      cancelSound (Sound): Sound played when canceling.
+      selectSound1 (Sound): Selection crunch sound variant 1.
+      selectSound2 (Sound): Selection crunch sound variant 2.
+      selectSound3 (Sound): Selection crunch sound variant 3.
+      startSound (Sound): Sound played when starting a game.
+  """
+
   def __init__(self, resource, svg):
+    """
+    Initialize the Data object and begin loading all game resources.
+
+    Args:
+        resource (Resource): The resource manager used to load and locate
+            game assets from the data directory.
+        svg (SvgContext): The SVG rendering context for drawing vector
+            graphics.
+    """
     self.resource = resource
     self.svg      = svg
 
@@ -84,11 +134,25 @@ class Data(object):
     self.loadSoundEffect(self, "startSound",   "start.ogg")
 
   def loadSoundEffect(self, target, name, fileName):
+    """
+    Load a sound effect asynchronously and set its volume.
+
+    Args:
+        target: The object to attach the loaded sound to.
+        name (str): The attribute name to assign the sound to on target.
+        fileName (str): The filename of the sound file in the data directory.
+    """
     volume   = Config.get("audio", "guitarvol")
     fileName = self.resource.fileName(fileName)
     self.resource.load(target, name, lambda: Sound(fileName), onLoad = lambda s: s.setVolume(volume))
 
   def loadScrewUpSounds(self):
+    """
+    Load all screw-up/mistake sound effects.
+
+    Returns:
+        list[Sound]: A list of Sound objects for mistake/screw-up audio.
+    """
     return [Sound(self.resource.fileName("fiba%d.ogg" % i)) for i in range(1, 7)]
     
   def loadSvgDrawing(self, target, name, fileName, textureSize = None):
@@ -110,6 +174,15 @@ class Data(object):
       
       
   def customizeFont(self, font):
+    """
+    Apply custom glyph images to a font.
+
+    Replaces predefined character codes with custom SVG-rendered textures
+    to provide special decorative characters in the font.
+
+    Args:
+        font (Font): The font instance to customize with special glyphs.
+    """
     # change some predefined characters to custom images
     font.setCustomGlyph(STAR1, self.star1.texture)
     font.setCustomGlyph(STAR2, self.star2.texture)
@@ -131,9 +204,24 @@ class Data(object):
   screwUpSound = property(getScrewUpSound)
 
   def essentialResourcesLoaded(self):
-    """return: True if essential resources such as the font have been loaded."""
+    """
+    Check if essential resources have finished loading.
+
+    Essential resources are those required for basic UI rendering,
+    primarily the fonts needed to display text.
+
+    Returns:
+        bool: True if essential resources (fonts) have been loaded,
+            False otherwise.
+    """
     return bool(self.font and self.bigFont)
 
   def resourcesLoaded(self):
-    """return: True if all the resources have been loaded."""
-    return not None in self.__dict__.values()
+    """
+    Check if all resources have finished loading.
+
+    Returns:
+        bool: True if all resources have been loaded (no None values
+            remain in the object's attributes), False otherwise.
+    """
+    return not None in list(self.__dict__.values())

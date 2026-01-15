@@ -1,8 +1,9 @@
 #####################################################################
-# -*- coding: iso-8859-1 -*-                                        #
+# -*- coding: utf-8 -*-                                             #
 #                                                                   #
 # Frets on Fire                                                     #
-# Copyright (C) 2006 Sami Kyöstilä                                  #
+# Copyright (C) 2006 Sami KyÃ¶stilÃ¤                                  #
+# Python 3 Port (2026)                                              #
 #                                                                   #
 # This program is free software; you can redistribute it and/or     #
 # modify it under the terms of the GNU General Public License       #
@@ -20,41 +21,84 @@
 # MA  02110-1301, USA.                                              #
 #####################################################################
 
+"""
+Main menu screen for Frets on Fire.
+
+This module provides the main menu interface that appears when the game
+starts. It displays animated background graphics and provides access to
+game modes, settings, editor, credits, and exit options.
+
+Classes:
+    MainMenu: The main menu background layer with animated visuals.
+"""
+
 from OpenGL.GL import *
 import math
-import socket
 
 from View import BackgroundLayer
 from Menu import Menu
 from Editor import Editor, Importer, GHImporter
 from Credits import Credits
-from Lobby import Lobby
 from Svg import SvgDrawing
 from Language import _
+from SinglePlayer import SinglePlayerSession
 import Dialogs
 import Config
+import Log
 import Audio
 import Settings
+import Song
 
 class MainMenu(BackgroundLayer):
+  """
+  Main menu background layer with animated graphics.
+
+  Displays the game's main menu with animated keyboard background,
+  logo, and character graphics. Manages navigation to game modes,
+  settings, editor, and other screens.
+
+  Attributes:
+      engine: Game engine instance.
+      time (float): Animation timer for visual effects.
+      nextLayer: Layer to push after menu closes.
+      visibility (float): Current fade visibility (0.0 to 1.0).
+      songName (str, optional): Song to auto-start if specified.
+      gameStarted (bool): True if a game session was started.
+      song: Background music audio object.
+      background: Keyboard background SVG drawing.
+      guy: Character pose SVG drawing.
+      logo: Game logo SVG drawing.
+      menu: The Menu instance for navigation.
+  """
+
   def __init__(self, engine, songName = None):
+    """
+    Initialize the main menu.
+
+    Args:
+        engine: Game engine instance.
+        songName: Optional song name to auto-start after menu shows.
+    """
     self.engine              = engine
     self.time                = 0.0
     self.nextLayer           = None
     self.visibility          = 0.0
     self.songName            = songName
+    self.gameStarted         = False
+    self.song                = None
     
     self.engine.loadSvgDrawing(self, "background", "keyboard.svg")
     self.engine.loadSvgDrawing(self, "guy",        "pose.svg")
     self.engine.loadSvgDrawing(self, "logo",       "logo.svg")
-    self.song = Audio.Sound(self.engine.resource.fileName("menu.ogg"))
-    self.song.setVolume(self.engine.config.get("audio", "songvol"))
-    self.song.play(-1)
-
-    newMultiplayerMenu = [
-      (_("Host Multiplayer Game"), self.hostMultiplayerGame),
-      (_("Join Multiplayer Game"), self.joinMultiplayerGame),
-    ]
+    
+    # Try to load and play menu music, but don't crash if mixer is not ready
+    try:
+      self.song = Audio.Sound(self.engine.resource.fileName("menu.ogg"))
+      self.song.setVolume(self.engine.config.get("audio", "songvol"))
+      self.song.play(-1)
+    except Exception as e:
+      Log.warn("Could not play menu music: %s" % e)
+      self.song = None
 
     editorMenu = Menu(self.engine, [
       (_("Edit Existing Song"),            self.startEditor),
@@ -65,7 +109,7 @@ class MainMenu(BackgroundLayer):
     settingsMenu = Settings.SettingsMenu(self.engine)
     
     mainMenu = [
-      (_("Play Game"),   self.newSinglePlayerGame),
+      (_("Play Game"),   self.newGame),
       (_("Tutorial"),    self.showTutorial),
       (_("Song Editor"), editorMenu),
       (_("Settings >"),  settingsMenu),
@@ -75,14 +119,27 @@ class MainMenu(BackgroundLayer):
     self.menu = Menu(self.engine, mainMenu, onClose = lambda: self.engine.view.popLayer(self))
 
   def shown(self):
+    """
+    Called when the main menu becomes visible.
+
+    Pushes the navigation menu layer and auto-starts a game if
+    a song name was specified at initialization.
+    """
     self.engine.view.pushLayer(self.menu)
-    self.engine.stopServer()
 
     if self.songName:
-      self.newSinglePlayerGame(self.songName)
+      self.newGame(self.songName)
     
   def hidden(self):
-    self.engine.view.popLayer(self.menu)
+    """
+    Called when the main menu is hidden.
+
+    Cleans up the menu layer, fades out music, and either launches
+    the next layer or quits the game if no game was started.
+    """
+    # Only pop menu if it's still in the layers
+    if self.menu in self.engine.view.layers:
+      self.engine.view.popLayer(self.menu)
 
     if self.song:
       self.song.fadeout(1000)
@@ -90,96 +147,97 @@ class MainMenu(BackgroundLayer):
     if self.nextLayer:
       self.engine.view.pushLayer(self.nextLayer())
       self.nextLayer = None
-    else:
+    elif not self.gameStarted:
       self.engine.quit()
 
   def quit(self):
+    """Exit the main menu and quit the game."""
     self.engine.view.popLayer(self.menu)
 
-  def catchErrors(function):
-    def harness(self, *args, **kwargs):
-      try:
-        try:
-          function(self, *args, **kwargs)
-        except:
-          import traceback
-          traceback.print_exc()
-          raise
-      except socket.error, e:
-        Dialogs.showMessage(self.engine, unicode(e[1]))
-      except KeyboardInterrupt:
-        pass
-      except Exception, e:
-        if e:
-          Dialogs.showMessage(self.engine, unicode(e))
-    return harness
-
   def launchLayer(self, layerFunc):
+    """
+    Schedule a layer to be launched after the menu closes.
+
+    Args:
+        layerFunc: Factory function that creates the layer to launch.
+    """
     if not self.nextLayer:
       self.nextLayer = layerFunc
       self.engine.view.popAllLayers()
 
+  def _startGame(self, songName=None, libraryName=None):
+    """Start a single-player game session."""
+    try:
+      # Mark that a game has started so hidden() doesn't quit
+      self.gameStarted = True
+      
+      # Pop the menu layers before starting the game
+      # This ensures Menu doesn't intercept game key events
+      self.engine.view.popLayer(self.menu)
+      self.engine.view.popLayer(self)
+      
+      # Create single-player session
+      session = SinglePlayerSession(self.engine)
+      session.createPlayer(_("Player"))
+      
+      # Start the game with optional song
+      if songName:
+        session.startGame(libraryName=libraryName or Song.DEFAULT_LIBRARY, songName=songName)
+      else:
+        session.startGame()
+        
+    except Exception as e:
+      import traceback
+      traceback.print_exc()
+      Dialogs.showMessage(self.engine, str(e))
+
   def showTutorial(self):
-    if self.engine.isServerRunning():
-      return
-    self.engine.startServer()
-    self.engine.resource.load(self, "session", lambda: self.engine.connect("127.0.0.1"), synch = True)
+    """Start the tutorial."""
+    self._startGame(songName="tutorial", libraryName=Song.DEFAULT_LIBRARY)
 
-    if Dialogs.showLoadingScreen(self.engine, lambda: self.session and self.session.isConnected):
-      self.launchLayer(lambda: Lobby(self.engine, self.session, singlePlayer = True, songName = "tutorial"))
-  showTutorial = catchErrors(showTutorial)
-
-  def newSinglePlayerGame(self, songName = None):
-    if self.engine.isServerRunning():
-      return
-    self.engine.startServer()
-    self.engine.resource.load(self, "session", lambda: self.engine.connect("127.0.0.1"), synch = True)
-
-    if Dialogs.showLoadingScreen(self.engine, lambda: self.session and self.session.isConnected):
-      self.launchLayer(lambda: Lobby(self.engine, self.session, singlePlayer = True, songName = songName))
-  newSinglePlayerGame = catchErrors(newSinglePlayerGame)
-
-  def hostMultiplayerGame(self):
-    self.engine.startServer()
-    self.engine.resource.load(self, "session", lambda: self.engine.connect("127.0.0.1"))
-
-    if Dialogs.showLoadingScreen(self.engine, lambda: self.session and self.session.isConnected):
-      self.launchLayer(lambda: Lobby(self.engine, self.session))
-  hostMultiplayerGame = catchErrors(hostMultiplayerGame)
-
-  def joinMultiplayerGame(self, address = None):
-    if not address:
-      address = Dialogs.getText(self.engine, _("Enter the server address:"), "127.0.0.1")
-
-    if not address:
-      return
-    
-    self.engine.resource.load(self, "session", lambda: self.engine.connect(address))
-
-    if Dialogs.showLoadingScreen(self.engine, lambda: self.session and self.session.isConnected, text = _("Connecting...")):
-      self.launchLayer(lambda: Lobby(self.engine, self.session))
-  joinMultiplayerGame = catchErrors(joinMultiplayerGame)
+  def newGame(self, songName=None):
+    """Start a new single-player game."""
+    if songName:
+      self._startGame(songName=songName)
+    else:
+      self._startGame()
 
   def startEditor(self):
+    """Launch the song editor for editing existing songs."""
     self.launchLayer(lambda: Editor(self.engine))
-  startEditor = catchErrors(startEditor)
 
   def startImporter(self):
+    """Launch the song importer for importing new songs."""
     self.launchLayer(lambda: Importer(self.engine))
-  startImporter = catchErrors(startImporter)
 
   def startGHImporter(self):
+    """Launch the Guitar Hero song importer."""
     self.launchLayer(lambda: GHImporter(self.engine))
-  startGHImporter = catchErrors(startGHImporter)
 
   def showCredits(self):
+    """Display the game credits screen."""
     self.launchLayer(lambda: Credits(self.engine))
-  showCredits = catchErrors(showCredits)
 
   def run(self, ticks):
+    """
+    Update menu animation state.
+
+    Args:
+        ticks: Time elapsed since last update in milliseconds.
+    """
     self.time += ticks / 50.0
     
   def render(self, visibility, topMost):
+    """
+    Render the main menu background with OpenGL.
+
+    Draws animated keyboard background, game logo, and character
+    graphics with smooth motion effects.
+
+    Args:
+        visibility: Fade-in/out factor from 0.0 to 1.0.
+        topMost: True if this is the topmost visible layer.
+    """
     self.visibility = visibility
     v = 1.0 - ((1 - visibility) ** 2)
       

@@ -5,9 +5,9 @@ from struct import unpack
 
 # uhh I don't really like this, but there are so many constants to 
 # import otherwise
-from constants import *
+from .constants import *
 
-from EventDispatcher import EventDispatcher
+from .EventDispatcher import EventDispatcher
 
 class MidiFileParser:
 
@@ -44,8 +44,9 @@ class MidiFileParser:
         header_chunk_zise = raw_in.readBew(4)
 
         # check if it is a proper midi file
-        if header_chunk_type != 'MThd':
-            raise TypeError, "It is not a valid midi file!"
+        # In Python 3, nextSlice returns bytes, so compare with bytes
+        if header_chunk_type != b'MThd':
+            raise TypeError("It is not a valid midi file!")
 
         # Header values are at fixed locations, so no reason to be clever
         self.format = raw_in.readBew(2)
@@ -190,8 +191,8 @@ if __name__ == '__main__':
 #    
 #    
 #    # do parsing
-    from MidiToText import MidiToText
-    from RawInstreamFile import RawInstreamFile
+    from .MidiToText import MidiToText
+    from .RawInstreamFile import RawInstreamFile
 
     midi_in = MidiFileParser(RawInstreamFile(test_file), MidiToText())
     midi_in.parseMThdChunk()

@@ -1,8 +1,9 @@
 #####################################################################
-# -*- coding: iso-8859-1 -*-                                        #
+# -*- coding: utf-8 -*-                                             #
 #                                                                   #
 # Frets on Fire                                                     #
-# Copyright (C) 2006 Sami Kyöstilä                                  #
+# Copyright (C) 2006 Sami KyÃ¶stilÃ¤                                  #
+# Python 3 Port (2026)                                              #
 #                                                                   #
 # This program is free software; you can redistribute it and/or     #
 # modify it under the terms of the GNU General Public License       #
@@ -20,21 +21,55 @@
 # MA  02110-1301, USA.                                              #
 #####################################################################
 
+"""
+Song and music data management module for Frets on Fire.
+
+This module handles all aspects of song loading, storage, and playback control.
+It provides functionality for:
+
+- Loading and parsing MIDI note files for guitar tracks
+- Managing song metadata (artist, name, delay, highscores) via INI files
+- Handling multiple difficulty levels (Supaeasy, Easy, Medium, Amazing)
+- Tracking note events with timing, length, and special attributes
+- Supporting tappable note detection based on timing rules
+- Managing audio tracks (song, guitar, rhythm) and their synchronization
+- Reading/writing song scripts for text and picture events
+
+Difficulty Levels:
+    AMAZING_DIFFICULTY (0): Hardest difficulty with all notes
+    MEDIUM_DIFFICULTY (1): Moderate difficulty
+    EASY_DIFFICULTY (2): Easier gameplay
+    SUPAEASY_DIFFICULTY (3): Beginner-friendly difficulty
+
+MIDI Note Mapping:
+    Notes are mapped from MIDI pitch values to game fret positions (0-4)
+    based on difficulty-specific pitch ranges defined in noteMap.
+
+Typical usage::
+
+    song = loadSong(engine, "mysong", library="songs")
+    song.play()
+    track = song.track  # Get current difficulty track
+    events = track.getEvents(startTime, endTime)
+"""
+
 import midi
 import Log
 import Audio
-from ConfigParser import ConfigParser
+from configparser import ConfigParser
 import os
 import re
 import shutil
 import Config
-import sha
+import hashlib
 import binascii
-import Cerealizer
-import urllib
+import pickle
+# import Cerealizer
+import urllib.request, urllib.parse, urllib.error
 import Version
 import Theme
 from Language import _
+from functools import reduce
 
 DEFAULT_LIBRARY         = "songs"
 
@@ -44,7 +79,25 @@ EASY_DIFFICULTY         = 2
 SUPAEASY_DIFFICULTY     = 3
 
 class Difficulty:
+  """
+  Represents a game difficulty level.
+
+  Difficulty levels determine which notes are included in gameplay
+  and map to specific MIDI pitch ranges in the note file.
+
+  Attributes:
+      id: Integer identifier for the difficulty (0=Amazing, 1=Medium,
+          2=Easy, 3=Supaeasy).
+      text: Localized display name for the difficulty level.
+  """
+
   def __init__(self, id, text):
+    """Initialize a Difficulty instance.
+
+    Args:
+        id: Integer identifier for this difficulty level.
+        text: Human-readable name for display.
+    """
     self.id   = id
     self.text = text
     
@@ -62,7 +115,32 @@ difficulties = {
 }
 
 class SongInfo(object):
+  """
+  Container for song metadata loaded from a song.ini file.
+
+  Manages all song information including name, artist, highscores,
+  delay settings, and available difficulties. Highscores are stored
+  with SHA1 hash verification to prevent tampering.
+
+  Attributes:
+      songName: Directory name of the song (used as identifier).
+      fileName: Full path to the song.ini file.
+      info: ConfigParser instance for reading/writing INI data.
+      highScores: Dictionary mapping Difficulty to list of (score, stars, name) tuples.
+      tutorial: Boolean property indicating if this is a tutorial song.
+      name: Song title from metadata.
+      artist: Artist name from metadata.
+      delay: Audio delay offset in milliseconds.
+      difficulties: List of available Difficulty objects for this song.
+      cassetteColor: Theme color for the song's cassette representation.
+  """
+
   def __init__(self, infoFileName):
+    """Initialize SongInfo from a song.ini file.
+
+    Args:
+        infoFileName: Path to the song.ini configuration file.
+    """
     self.songName      = os.path.basename(os.path.dirname(infoFileName))
     self.fileName      = infoFileName
     self.info          = ConfigParser()
@@ -79,32 +157,35 @@ class SongInfo(object):
     
     scores = self._get("scores", str, "")
     if scores:
-      scores = Cerealizer.loads(binascii.unhexlify(scores))
-      for difficulty in scores.keys():
-        try:
-          difficulty = difficulties[difficulty]
-        except KeyError:
-          continue
-        for score, stars, name, hash in scores[difficulty.id]:
-          if self.getScoreHash(difficulty, score, stars, name) == hash:
-            self.addHighscore(difficulty, score, stars, name)
-          else:
-            Log.warn("Weak hack attempt detected. Better luck next time.")
+      try:
+        scores = pickle.loads(binascii.unhexlify(scores))
+        for difficulty in list(scores.keys()):
+          try:
+            difficulty = difficulties[difficulty]
+          except KeyError:
+            continue
+          for score, stars, name, hash in scores[difficulty.id]:
+            if self.getScoreHash(difficulty, score, stars, name) == hash:
+              self.addHighscore(difficulty, score, stars, name)
+            else:
+              Log.warn("Weak hack attempt detected. Better luck next time.")
+      except Exception as e:
+        # Could not load old scores (likely old serialization format)
+        Log.warn("Could not load saved scores: %s" % str(e))
 
   def _set(self, attr, value):
     if not self.info.has_section("song"):
       self.info.add_section("song")
-    if type(value) == unicode:
-      value = value.encode(Config.encoding)
-    else:
+    # In Python 3, configparser requires string values
+    if not isinstance(value, str):
       value = str(value)
     self.info.set("song", attr, value)
     
   def getObfuscatedScores(self):
     s = {}
-    for difficulty in self.highScores.keys():
+    for difficulty in list(self.highScores.keys()):
       s[difficulty.id] = [(score, stars, name, self.getScoreHash(difficulty, score, stars, name)) for score, stars, name in self.highScores[difficulty]]
-    return binascii.hexlify(Cerealizer.dumps(s))
+    return binascii.hexlify(pickle.dumps(s))
 
   def save(self):
     self._set("scores", self.getObfuscatedScores())
@@ -123,6 +204,16 @@ class SongInfo(object):
     return v
 
   def getDifficulties(self):
+    """Get available difficulty levels for this song.
+
+    Parses the MIDI note file to determine which difficulties have notes.
+    Tutorial songs only return MEDIUM_DIFFICULTY. Results are cached
+    after first call.
+
+    Returns:
+        List of Difficulty objects available for this song, sorted by
+        difficulty ID in descending order (hardest first).
+    """
     # Tutorials only have the medium difficulty
     if self.tutorial:
       return [difficulties[MEDIUM_DIFFICULTY]]
@@ -139,10 +230,15 @@ class SongInfo(object):
         midiIn.read()
       except MidiInfoReader.Done:
         pass
-      info.difficulties.sort(lambda a, b: cmp(b.id, a.id))
+      info.difficulties.sort(key=lambda x: x.id, reverse=True)
       self._difficulties = info.difficulties
     except:
-      self._difficulties = difficulties.values()
+      self._difficulties = list(difficulties.values())
+    
+    # If no difficulties found (empty MIDI), return all difficulties as fallback
+    if not self._difficulties:
+      self._difficulties = list(difficulties.values())
+    
     return self._difficulties
 
   def getName(self):
@@ -166,7 +262,7 @@ class SongInfo(object):
     self._set("artist", value)
     
   def getScoreHash(self, difficulty, score, stars, name):
-    return sha.sha("%d%d%d%s" % (difficulty.id, score, stars, name)).hexdigest()
+    return hashlib.sha1(("%d%d%d%s" % (difficulty.id, score, stars, name)).encode('utf-8')).hexdigest()
     
   def getDelay(self):
     return self._get("delay", int, 0)
@@ -188,22 +284,36 @@ class SongInfo(object):
         "scores":   self.getObfuscatedScores(),
         "version":  Version.version()
       }
-      data = urllib.urlopen(url + "?" + urllib.urlencode(d)).read()
+      data = urllib.request.urlopen(url + "?" + urllib.parse.urlencode(d)).read()
       Log.debug("Score upload result: %s" % data)
       if ";" in data:
         fields = data.split(";")
       else:
         fields = [data, "0"]
       return (fields[0] == "True", int(fields[1]))
-    except Exception, e:
+    except Exception as e:
       Log.error(e)
       return (False, 0)
   
   def addHighscore(self, difficulty, score, stars, name):
+    """Add a new highscore entry for the given difficulty.
+
+    Maintains a sorted list of top 5 scores per difficulty.
+
+    Args:
+        difficulty: Difficulty object for this score.
+        score: Integer score value.
+        stars: Integer star rating (0-5).
+        name: Player name string.
+
+    Returns:
+        Integer position (0-4) if score made top 5, -1 otherwise.
+    """
     if not difficulty in self.highScores:
       self.highScores[difficulty] = []
     self.highScores[difficulty].append((score, stars, name))
-    self.highScores[difficulty].sort(lambda a, b: {True: -1, False: 1}[a[0] > b[0]])
+    # Sort by score descending (Python 3 uses key= instead of cmp=)
+    self.highScores[difficulty].sort(key=lambda x: -x[0])
     self.highScores[difficulty] = self.highScores[difficulty][:5]
     for i, scores in enumerate(self.highScores[difficulty]):
       _score, _stars, _name = scores
@@ -248,7 +358,7 @@ class LibraryInfo(object):
   def _set(self, attr, value):
     if not self.info.has_section("library"):
       self.info.add_section("library")
-    if type(value) == unicode:
+    if type(value) == str:
       value = value.encode(Config.encoding)
     else:
       value = str(value)
@@ -287,11 +397,49 @@ class LibraryInfo(object):
   color         = property(getColor, setColor)
 
 class Event:
+  """
+  Base class for all timed events in a song track.
+
+  Events represent things that happen at specific times during playback,
+  such as notes, tempo changes, text displays, or picture overlays.
+
+  Attributes:
+      length: Duration of the event in milliseconds.
+  """
+
   def __init__(self, length):
+    """Initialize an Event with the given duration.
+
+    Args:
+        length: Duration in milliseconds.
+    """
     self.length = length
 
 class Note(Event):
+  """
+  Represents a playable note in a guitar track.
+
+  Notes correspond to fret buttons the player must press. They have
+  timing, duration, and can be marked as special (star power) or
+  tappable (hammer-on/pull-off).
+
+  Attributes:
+      number: Fret number (0-4) corresponding to guitar buttons.
+      length: Duration the note is held in milliseconds.
+      played: Boolean indicating if the note has been successfully hit.
+      special: Boolean for star power notes (MIDI velocity 127).
+      tappable: Boolean for hammer-on/pull-off notes (set by Track.update).
+  """
+
   def __init__(self, number, length, special = False, tappable = False):
+    """Initialize a Note event.
+
+    Args:
+        number: Fret number (0-4).
+        length: Note duration in milliseconds.
+        special: Whether this is a star power note.
+        tappable: Whether this note can be tapped (usually set later).
+    """
     Event.__init__(self, length)
     self.number   = number
     self.played   = False
@@ -323,13 +471,35 @@ class PictureEvent(Event):
     self.fileName = fileName
     
 class Track:
+  """
+  Container for events at a specific difficulty level.
+
+  Tracks store notes and other events with efficient time-based retrieval
+  using a granular bucket system. Each track corresponds to one difficulty.
+
+  Attributes:
+      granularity: Time bucket size in milliseconds for event indexing.
+      events: List of event buckets for fast time-range queries.
+      allEvents: List of all (time, event) tuples in insertion order.
+  """
+
   granularity = 50
   
   def __init__(self):
+    """Initialize an empty Track."""
     self.events = []
     self.allEvents = []
 
   def addEvent(self, time, event):
+    """Add an event to the track at the specified time.
+
+    Events are indexed into time buckets based on granularity for
+    efficient range queries. Long events span multiple buckets.
+
+    Args:
+        time: Start time in milliseconds.
+        event: Event object to add (Note, Tempo, TextEvent, etc.).
+    """
     for t in range(int(time / self.granularity), int((time + event.length) / self.granularity) + 1):
       if len(self.events) < t + 1:
         n = t + 1 - len(self.events)
@@ -347,6 +517,17 @@ class Track:
       self.allEvents.remove((time, event))
 
   def getEvents(self, startTime, endTime):
+    """Retrieve all events within a time range.
+
+    Uses the granular bucket index for efficient lookups.
+
+    Args:
+        startTime: Start of time range in milliseconds.
+        endTime: End of time range in milliseconds.
+
+    Returns:
+        Set of (time, event) tuples for events active in the range.
+    """
     t1, t2 = [int(x) for x in [startTime / self.granularity, endTime / self.granularity]]
     if t1 > t2:
       t1, t2 = t2, t1
@@ -368,6 +549,18 @@ class Track:
           event.played = False
 
   def update(self):
+    """Update track state, marking tappable notes.
+
+    Analyzes all notes to determine which can be played as hammer-ons
+    or pull-offs (tappable). A note is tappable if:
+    
+    1. It is not the first note of the track
+    2. The previous note is different from this one
+    3. The previous note is not a chord (single note only)
+    4. The previous note ends within 161 ticks of this note's start
+
+    This method should be called after all notes are loaded.
+    """
     # Determine which notes are tappable. The rules are:
     #  1. Not the first note of the track
     #  2. Previous note not the same as this one
@@ -437,7 +630,39 @@ class Track:
         currentTicks = ticks
 
 class Song(object):
+  """
+  Main song class managing audio playback and note tracks.
+
+  Coordinates loading of audio files (song, guitar, rhythm tracks),
+  MIDI note data, and script events. Provides playback control and
+  timing synchronization for gameplay.
+
+  Attributes:
+      engine: Game engine reference for resource access.
+      info: SongInfo object with metadata.
+      tracks: List of Track objects, one per difficulty level.
+      difficulty: Currently selected Difficulty object.
+      bpm: Beats per minute for timing calculations.
+      period: Milliseconds per beat (60000 / bpm).
+      music: Main Audio.Music object for song playback.
+      guitarTrack: Optional Audio.StreamingSound for guitar audio.
+      rhythmTrack: Optional Audio.StreamingSound for rhythm/bass audio.
+      noteFileName: Path to the MIDI notes file.
+      track: Property returning the Track for current difficulty.
+  """
+
   def __init__(self, engine, infoFileName, songTrackName, guitarTrackName, rhythmTrackName, noteFileName, scriptFileName = None):
+    """Initialize a Song from audio and note files.
+
+    Args:
+        engine: Game engine instance.
+        infoFileName: Path to song.ini file.
+        songTrackName: Path to main song audio file.
+        guitarTrackName: Path to guitar audio file (optional).
+        rhythmTrackName: Path to rhythm audio file (optional).
+        noteFileName: Path to MIDI notes file.
+        scriptFileName: Path to script.txt for text/picture events (optional).
+    """
     self.engine        = engine
     self.info          = SongInfo(infoFileName)
     self.tracks        = [Track() for t in range(len(difficulties))]
@@ -458,13 +683,13 @@ class Song(object):
     try:
       if guitarTrackName:
         self.guitarTrack = Audio.StreamingSound(self.engine, self.engine.audio.getChannel(1), guitarTrackName)
-    except Exception, e:
+    except Exception as e:
       Log.warn("Unable to load guitar track: %s" % e)
 
     try:
       if rhythmTrackName:
         self.rhythmTrack = Audio.StreamingSound(self.engine, self.engine.audio.getChannel(2), rhythmTrackName)
-    except Exception, e:
+    except Exception as e:
       Log.warn("Unable to load rhythm track: %s" % e)
 	
     # load the notes
@@ -482,7 +707,7 @@ class Song(object):
       track.update()
 
   def getHash(self):
-    h = sha.new()
+    h = hashlib.sha1()
     f = open(self.noteFileName, "rb")
     bs = 1024
     while True:
@@ -506,6 +731,12 @@ class Song(object):
     shutil.move(self.noteFileName + ".tmp", self.noteFileName)
 
   def play(self, start = 0.0):
+    """Start playing the song from the specified position.
+
+    Args:
+        start: Start position in milliseconds. Note: guitar and rhythm
+               tracks only support starting from 0.0.
+    """
     self.start = start
     self.music.play(0, start / 1000.0)
     if self.guitarTrack:
@@ -540,6 +771,10 @@ class Song(object):
     self.music.setVolume(volume)
   
   def stop(self):
+    """Stop playback and reset all tracks.
+
+    Resets played state of all notes and rewinds audio to beginning.
+    """
     for track in self.tracks:
       track.reset()
       
@@ -608,10 +843,28 @@ noteMap = {     # difficulty, note
   0x40: (SUPAEASY_DIFFICULTY, 4),
 }
 
-reverseNoteMap = dict([(v, k) for k, v in noteMap.items()])
+reverseNoteMap = dict([(v, k) for k, v in list(noteMap.items())])
 
 class MidiWriter:
+  """
+  Writes song note data to a MIDI file.
+
+  Converts internal Note events back to MIDI format for saving
+  edited songs. Handles tempo and note timing conversions.
+
+  Attributes:
+      song: Song object to write.
+      out: midi.MidiOutFile output stream.
+      ticksPerBeat: MIDI time resolution (default 480).
+  """
+
   def __init__(self, song, out):
+    """Initialize MidiWriter for the given song.
+
+    Args:
+        song: Song object containing tracks to write.
+        out: midi.MidiOutFile instance for output.
+    """
     self.song         = song
     self.out          = out
     self.ticksPerBeat = 480
@@ -629,9 +882,10 @@ class MidiWriter:
       self.out.tempo(int(60.0 * 10.0**6 / 122.0))
 
     # Collect all events
-    events = [zip([difficulty] * len(track.getAllEvents()), track.getAllEvents()) for difficulty, track in enumerate(self.song.tracks)]
+    events = [list(zip([difficulty] * len(track.getAllEvents()), track.getAllEvents())) for difficulty, track in enumerate(self.song.tracks)]
     events = reduce(lambda a, b: a + b, events)
-    events.sort(lambda a, b: {True: 1, False: -1}[a[1][0] > b[1][0]])
+    # Sort by time ascending (Python 3 uses key= instead of cmp=)
+    events.sort(key=lambda x: x[1][0])
     heldNotes = []
 
     for difficulty, event in events:
@@ -650,7 +904,8 @@ class MidiWriter:
         self.out.update_time(time, relative = 0)
         self.out.note_on(0, note, event.special and 127 or 100)
         heldNotes.append((note, time + self.midiTime(event.length)))
-        heldNotes.sort(lambda a, b: {True: 1, False: -1}[a[1] > b[1]])
+        # Sort by endTime ascending (Python 3 uses key= instead of cmp=)
+        heldNotes.sort(key=lambda x: x[1])
 
     # Turn of any remaining notes
     for note, endTime in heldNotes:
@@ -668,7 +923,7 @@ class ScriptReader:
     self.file = scriptFile
 
   def read(self):
-    for line in self.file.xreadlines():
+    for line in self.file:
       if line.startswith("#"): continue
       time, length, type, data = re.split("[\t ]+", line.strip(), 3)
       time   = float(time)
@@ -685,7 +940,27 @@ class ScriptReader:
         track.addEvent(time, event)
 
 class MidiReader(midi.MidiOutStream):
+  """
+  Parses MIDI files to extract note and tempo data.
+
+  Extends midi.MidiOutStream to receive MIDI events and convert them
+  to game Note objects. Handles tempo changes and note timing with
+  proper BPM scaling.
+
+  Attributes:
+      song: Song object to populate with parsed events.
+      heldNotes: Dict tracking currently held notes for note-off matching.
+      velocity: Dict storing note velocities for special note detection.
+      ticksPerBeat: MIDI time resolution from file header.
+      tempoMarkers: List of (tick, bpm) tuples for tempo changes.
+  """
+
   def __init__(self, song):
+    """Initialize MidiReader for the given song.
+
+    Args:
+        song: Song object to populate with parsed MIDI data.
+    """
     midi.MidiOutStream.__init__(self)
     self.song = song
     self.heldNotes = {}
@@ -755,10 +1030,25 @@ class MidiReader(midi.MidiOutStream):
       Log.warn("MIDI note 0x%x on channel %d ending at %d was never started." % (note, channel, self.abs_time()))
       
 class MidiInfoReader(midi.MidiOutStream):
+  """
+  Quick MIDI scanner to detect available difficulty levels.
+
+  Reads just enough of a MIDI file to determine which difficulties
+  have notes, then raises Done exception for early termination.
+
+  Attributes:
+      difficulties: List of Difficulty objects found in the MIDI file.
+
+  Raises:
+      MidiInfoReader.Done: Raised when all difficulties are found
+          to allow early exit from MIDI parsing.
+  """
+
   # We exit via this exception so that we don't need to read the whole file in
   class Done: pass
   
   def __init__(self):
+    """Initialize the MidiInfoReader."""
     midi.MidiOutStream.__init__(self)
     self.difficulties = []
 
@@ -769,11 +1059,24 @@ class MidiInfoReader(midi.MidiOutStream):
       if not diff in self.difficulties:
         self.difficulties.append(diff)
         if len(self.difficulties) == len(difficulties):
-          raise Done
+          raise MidiInfoReader.Done
     except KeyError:
       pass
 
 def loadSong(engine, name, library = DEFAULT_LIBRARY, seekable = False, playbackOnly = False, notesOnly = False):
+  """Load a complete song with audio and note data.
+
+  Args:
+      engine: Game engine instance for resource access.
+      name: Song directory name.
+      library: Library path containing the song (default: "songs").
+      seekable: If True, combines guitar into song track for seeking.
+      playbackOnly: If True, skips loading note data.
+      notesOnly: Currently unused.
+
+  Returns:
+      Song object ready for playback.
+  """
   guitarFile = engine.resource.fileName(library, name, "guitar.ogg")
   songFile   = engine.resource.fileName(library, name, "song.ogg")
   rhythmFile = engine.resource.fileName(library, name, "rhythm.ogg")
@@ -808,6 +1111,22 @@ def loadSongInfo(engine, name, library = DEFAULT_LIBRARY):
   return SongInfo(infoFile)
   
 def createSong(engine, name, guitarTrackName, backgroundTrackName, rhythmTrackName = None, library = DEFAULT_LIBRARY):
+  """Create a new song from audio files.
+
+  Creates the song directory structure and copies audio files.
+  Initializes an empty MIDI notes file.
+
+  Args:
+      engine: Game engine instance for resource access.
+      name: Name for the new song (used as directory name).
+      guitarTrackName: Path to source guitar audio file.
+      backgroundTrackName: Path to source background audio file (optional).
+      rhythmTrackName: Path to source rhythm audio file (optional).
+      library: Library path for the new song (default: "songs").
+
+  Returns:
+      Song object for the newly created song.
+  """
   path = os.path.abspath(engine.resource.fileName(library, name, writable = True))
   os.makedirs(path)
   
@@ -870,10 +1189,22 @@ def getAvailableLibraries(engine, library = DEFAULT_LIBRARY):
             libraries.append(LibraryInfo(libName, os.path.join(libraryRoot, "library.ini")))
             libraryRoots.append(libraryRoot)
             break
-  libraries.sort(lambda a, b: cmp(a.name, b.name))
+  libraries.sort(key=lambda x: x.name)
   return libraries
 
 def getAvailableSongs(engine, library = DEFAULT_LIBRARY, includeTutorials = False):
+  """Get list of available songs in a library.
+
+  Searches both read-only and writable resource directories.
+
+  Args:
+      engine: Game engine instance for resource access.
+      library: Library path to search (default: "songs").
+      includeTutorials: If True, includes tutorial songs in results.
+
+  Returns:
+      List of SongInfo objects sorted by name.
+  """
   # Search for songs in both the read-write and read-only directories
   songRoots = [engine.resource.fileName(library), engine.resource.fileName(library, writable = True)]
   names = []
@@ -887,5 +1218,5 @@ def getAvailableSongs(engine, library = DEFAULT_LIBRARY, includeTutorials = Fals
   songs = [SongInfo(engine.resource.fileName(library, name, "song.ini", writable = True)) for name in names]
   if not includeTutorials:
     songs = [song for song in songs if not song.tutorial]
-  songs.sort(lambda a, b: cmp(a.name, b.name))
+  songs.sort(key=lambda x: x.name)
   return songs
